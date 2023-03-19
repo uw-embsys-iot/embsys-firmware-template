@@ -14,6 +14,7 @@
 	compatible = "st,stm32l496-cell";
 
 	chosen {
+		/* IOTEMBSYS: Choose correct UART */
 		zephyr,console = &usart2;
 		zephyr,shell-uart = &usart2;
 		zephyr,sram = &sram0;
@@ -28,6 +29,7 @@
 		};
 	};
 
+	/* IOTEMBSYS: Add joystick GPIO keys */
 	gpio_keys {
 		compatible = "gpio-keys";
 		joy_sel: joystick_select {
@@ -93,85 +95,10 @@
 	apb2-prescaler = <1>;
 };
 
-&usart1 {
-	pinctrl-0 = <&usart1_tx_pb6 &usart1_rx_pg10>;
-	pinctrl-names = "default";
-	current-speed = <115200>;
-	status = "okay";
-
-	/* QUECTEL BG96 */
-	quectel_bg96: quectel_bg96 {
-		compatible = "quectel,bg96";
-		mdm-power-gpios = <&gpiod 3 GPIO_ACTIVE_LOW>;
-		mdm-reset-gpios = <&gpiob 2 GPIO_ACTIVE_LOW>;
-		mdm-dtr-gpios = <&gpioa 0 GPIO_ACTIVE_LOW>;
-		mdm-sim-select-gpios = <&gpioc 2 GPIO_ACTIVE_LOW>, <&gpioi 3 GPIO_ACTIVE_LOW>;
-		status = "okay";
-	};
-};
-
+/* IOTEMBSYS: Add UART node */
 &usart2 {
 	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pd6>;
 	pinctrl-names = "default";
 	current-speed = <115200>;
-	status = "okay";
-};
-
-
-&lpuart1 {
-	pinctrl-0 = <&lpuart1_tx_pg7 &lpuart1_rx_pg8>;
-	pinctrl-names = "default";
-	current-speed = <115200>;
-	status = "okay";
-};
-
-&timers2 {
-	status = "okay";
-
-	pwm2: pwm {
-		status = "okay";
-		pinctrl-0 = <&tim2_ch1_pa0>;
-		pinctrl-names = "default";
-	};
-};
-
-&i2c1 {
-	pinctrl-0 = <&i2c1_scl_pb8 &i2c1_sda_pb7>;
-	pinctrl-names = "default";
-	status = "okay";
-	clock-frequency = <I2C_BITRATE_FAST>;
-};
-
-&spi1 {
-	pinctrl-0 = <&spi1_sck_pa5 &spi1_miso_pb4 &spi1_mosi_pb5>;
-	pinctrl-names = "default";
-	cs-gpios = <&gpioa 15 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
-	status = "okay";
-};
-
-&rtc {
-	clocks = <&rcc STM32_CLOCK_BUS_APB1 0x10000000>,
-		 <&rcc STM32_SRC_LSI RTC_SEL(2)>;
-	status = "okay";
-};
-
-&sdmmc1 {
-	pinctrl-0 = <&sdmmc1_d0_pc8 &sdmmc1_d1_pc9
-		     &sdmmc1_d2_pc10 &sdmmc1_d3_pc11
-		     &sdmmc1_ck_pc12 &sdmmc1_cmd_pd2>;
-	pinctrl-names = "default";
-	status = "okay";
-};
-
-&adc1 {
-	pinctrl-0 = < &adc1_in2_pc1>;
-	pinctrl-names = "default";
-	status = "okay";
-};
-
-zephyr_udc0: &usbotg_fs {
-	pinctrl-0 = <&usb_otg_fs_dm_pa11 &usb_otg_fs_dp_pa12
-		     &usb_otg_fs_id_pa10>;
-	pinctrl-names = "default";
 	status = "okay";
 };
