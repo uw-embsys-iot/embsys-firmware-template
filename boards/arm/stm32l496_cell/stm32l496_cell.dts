@@ -95,6 +95,24 @@
 	apb2-prescaler = <1>;
 };
 
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pb6 &usart1_rx_pg10>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+
+	/* QUECTEL BG96 */
+	quectel_bg96: quectel_bg96 {
+		/*compatible = "quectel,bg96";*/
+		compatible = "quectel,bg9x";
+		mdm-power-gpios = <&gpiod 3 GPIO_ACTIVE_LOW>;
+		mdm-reset-gpios = <&gpiob 2 GPIO_ACTIVE_LOW>;
+		mdm-dtr-gpios = <&gpioa 0 GPIO_ACTIVE_LOW>;
+		/*mdm-sim-select-gpios = <&gpioc 2 GPIO_ACTIVE_LOW>, <&gpioi 3 GPIO_ACTIVE_LOW>;*/
+		status = "okay";
+	};
+};
+
 /* IOTEMBSYS: Add UART node */
 &usart2 {
 	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pd6>;

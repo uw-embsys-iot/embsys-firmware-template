@@ -1,8 +1,13 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
+
 /* IOTEMBSYS: Add required import shell and/or others */
-#include <zephyr/shell/shell.h>
+//#include <zephyr/shell/shell.h>
+
+#include <stdlib.h>
 
 /* 1000 msec = 1 sec */
 #define DEFAULT_SLEEP_TIME_MS   1000
@@ -71,7 +76,7 @@ static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 }
 
 static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_callback* data) {
-	int ret;
+	int ret = -1;
 
 	if (!gpio_is_ready_dt(button)) {
 		printk("Error: button device %s is not ready\n",
@@ -102,6 +107,7 @@ static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_cal
 void main(void)
 {
 	int ret;
+	const struct device *modem;
 
 	if (!gpio_is_ready_dt(&led)) {
 		return;
@@ -119,6 +125,12 @@ void main(void)
 	init_joystick_gpio(&sw3, &button_cb_data_3);
 	init_joystick_gpio(&sw4, &button_cb_data_4);
 
+	modem = DEVICE_DT_GET(DT_NODELABEL(quectel_bg96));
+	if (!device_is_ready(modem)) {
+		LOG_ERR("Modem not ready");
+		return;
+	}
+
 	while (1) {
 		ret = gpio_pin_toggle_dt(&led);
 		/* IOTEMBSYS: Print GPIO state to console. */
@@ -129,17 +141,17 @@ void main(void)
 	}
 }
 
-/* IOTEMBSYS: Add shell commands and handler. */
-static int cmd_demo_blink(const struct shell *shell, size_t argc, char **argv)
-{
-	uint32_t interval_ms = atoi(argv[1]);
-	shell_print(shell, "Setting interval to: %d", interval_ms);
+// /* IOTEMBSYS: Add shell commands and handler. */
+// static int cmd_demo_blink(const struct shell *shell, size_t argc, char **argv)
+// {
+// 	uint32_t interval_ms = atoi(argv[1]);
+// 	shell_print(shell, "Setting interval to: %d", interval_ms);
 
-	change_blink_interval(interval_ms);
-	return 0;
-}
+// 	change_blink_interval(interval_ms);
+// 	return 0;
+// }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_app,
-	SHELL_CMD(blink, NULL, "Change blink interval", cmd_demo_blink),
-);
-SHELL_CMD_REGISTER(app, &sub_app, "Application commands", NULL);
+// SHELL_STATIC_SUBCMD_SET_CREATE(sub_app,
+// 	SHELL_CMD(blink, NULL, "Change blink interval", cmd_demo_blink),
+// );
+// SHELL_CMD_REGISTER(app, &sub_app, "Application commands", NULL);
