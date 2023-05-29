@@ -241,6 +241,10 @@ MODEM_CMD_DEFINE(on_cmd_exterror)
 /* Handler: +CSQ: <signal_power>[0], <qual>[1] */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_rssi_csq)
 {
+	// IOTEMBSYS: the modem will become connected and allow the app to boot
+	// when it has sufficient signal strength (RSSI). Find the definition of
+	// the MODEM_CMD_DEFINE or try debugging to figure out which variable
+	// needs to become the RSSI
 	int rssi = ATOI(argv[0], 0, "signal_power");
 
 	/* Check the RSSI value. */
@@ -282,6 +286,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_manufacturer)
 /* Handler: <model> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 {
+	// IOTEMBSYS: Implement this handler.
 	size_t out_len = net_buf_linearize(mdata.mdm_model,
 					   sizeof(mdata.mdm_model) - 1,
 					   data->rx_buf, 0, len);
@@ -295,6 +300,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 /* Handler: <rev> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 {
+	// IOTEMBSYS: Implement this handler.
 	size_t out_len = net_buf_linearize(mdata.mdm_revision,
 					   sizeof(mdata.mdm_revision) - 1,
 					   data->rx_buf, 0, len);
@@ -308,6 +314,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 /* Handler: <IMEI> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imei)
 {
+	// IOTEMBSYS: Implement this handler.
 	size_t out_len = net_buf_linearize(mdata.mdm_imei,
 					   sizeof(mdata.mdm_imei) - 1,
 					   data->rx_buf, 0, len);
@@ -335,6 +342,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imsi)
 /* Handler: <ICCID> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_iccid)
 {
+	// IOTEMBSYS: Implement this handler.
 	size_t out_len;
 	char   *p;
 
@@ -937,23 +945,26 @@ static const struct modem_cmd unsol_cmds[] = {
 static const struct setup_cmd setup_cmds[] = {
 	// Turn off echo mode
     SETUP_CMD_NOHANDLE("ATE0"),
-    // Turn off flow control
-    SETUP_CMD_NOHANDLE("AT+IFC=0,0"),
-    // Disconnect existing connections
-	SETUP_CMD_NOHANDLE("ATH"),
-    // Set default error message format (numeric values)
-	SETUP_CMD_NOHANDLE("AT+CMEE=1"),
-    // Use the long response code format
+	// Use the long response code format
     SETUP_CMD_NOHANDLE("ATV1"),
-    // TODO(mskobov): Decide on which DTR function mode to use
+	// TODO(mskobov): Decide on which DTR function mode to use
     SETUP_CMD_NOHANDLE("AT&D0"),
-    // Disable power save mode
+	// IOTEMBSYS: Turn off flow control
+    SETUP_CMD_NOHANDLE("AT+IFC=0,0"),
+    // IOTEMBSYS: Disconnect existing connections
+	SETUP_CMD_NOHANDLE("ATH"),
+    // IOTEMBSYS: Set default error message format (numeric values)
+	SETUP_CMD_NOHANDLE("AT+CMEE=1"),
+    // IOTEMBSYS: Disable power save mode
     SETUP_CMD_NOHANDLE("AT+CPSMS=0"),
 
 	/* Commands to read info from the modem (things like IMEI, Model etc). */
 	SETUP_CMD("AT+CGMI", "", on_cmd_atcmdinfo_manufacturer, 0U, ""),
+	// IOTEMBSYS: Get the model info
 	SETUP_CMD("AT+CGMM", "", on_cmd_atcmdinfo_model, 0U, ""),
+	// IOTEMBSYS: Get the modem firmware revision
 	SETUP_CMD("AT+CGMR", "", on_cmd_atcmdinfo_revision, 0U, ""),
+	// IOTEMBSYS: Get the modem IMEI
 	SETUP_CMD("AT+CGSN", "", on_cmd_atcmdinfo_imei, 0U, ""),
 
     // Go into minimum functionality mode
@@ -971,20 +982,14 @@ static const struct setup_cmd setup_cmds[] = {
     // Set the band configuration to any
     //SETUP_CMD_NOHANDLE("AT+QCFG=\"band\",0xf,0x400a0e189f,0xa0e189f,1"),
 
-    // Go into full functionality mode
+    // IOTEMBSYS: Go into full functionality mode
     SETUP_CMD_NOHANDLE("AT+CFUN=1,0"),
-#if defined(CONFIG_MODEM_SIM_NUMBERS)
-	//SETUP_CMD("AT+CIMI", "", on_cmd_atcmdinfo_imsi, 0U, ""),
-	//SETUP_CMD("AT+QCCID", "", on_cmd_atcmdinfo_iccid, 0U, ""),
-#endif /* #if defined(CONFIG_MODEM_SIM_NUMBERS) */
-	// SETUP_CMD_NOHANDLE("AT+QICSGP=1,1,\"" MDM_APN "\",\""
-	// 		   MDM_USERNAME "\",\"" MDM_PASSWORD "\",1"),
 };
 
+// These are commands that can sometimes fail, so they are declared separately.
 static const struct setup_cmd setup_cmds_polling[] = {
 #if defined(CONFIG_MODEM_SIM_NUMBERS)
-    // TODO(mskobov): Figure out why CIMI isn't working. Likely needs to be called after network setup
-	// SETUP_CMD("AT+CIMI", "", on_cmd_atcmdinfo_imsi, 0U, ""),
+    // AT+CPIN doesn't work on some boards, so ignore the errors
     SETUP_CMD_NOHANDLE("AT+CPIN?"),
     // TODO(mskobov): Implement actual CPIN handler
     //SETUP_CMD("AT+CPIN?", "", on_cmd_atcmdinfo_iccid, 0U, ""),
