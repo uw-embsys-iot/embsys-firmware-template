@@ -177,30 +177,58 @@ static void http_response_cb(struct http_response *rsp,
 		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
 	} else if (final_data == HTTP_DATA_FINAL) {
 		LOG_INF("All the data received (%zd bytes)", rsp->data_len);
+		
+		// This assumes the response fits in a single buffer.
+		recv_buf_[rsp->data_len] = '\0';
 	}
 
 	LOG_INF("Response to %s", (const char *)user_data);
 	LOG_INF("Response status %s", rsp->http_status);
 }
 
-#define USE_EC2_ECHO_SERVER 0
+int http_payload_cb(int sock, struct http_request *req, void *user_data) {
+	const char *content[] = {
+		"foobar",
+		"chunked",
+		"last"
+	};
+	char tmp[64];
+	int i, pos = 0;
+
+	for (i = 0; i < ARRAY_SIZE(content); i++) {
+		pos += snprintk(tmp + pos, sizeof(tmp) - pos,
+				"%x\r\n%s\r\n",
+				(unsigned int)strlen(content[i]),
+				content[i]);
+	}
+
+	pos += snprintk(tmp + pos, sizeof(tmp) - pos, "0\r\n\r\n");
+
+	(void)send(sock, tmp, pos, 0);
+
+	return pos;
+}
+
+#define USE_EC2_SERVER 0
 
 #define TCPBIN_IP "45.79.112.203"
 #define HTTPBIN_IP "100.26.90.23"
+#define EC2_IP "44.203.155.243"
 #define TCP_PORT 4242
 #define HTTP_PORT 80
+#define IS_POST_REQ 1
 
-#if !USE_EC2_ECHO_SERVER
+#if !USE_EC2_SERVER
 	static const char kEchoServerIP[] = HTTPBIN_IP;
 #else
-	static const char kEchoServerIP[] = "44.203.155.243";
+	static const char kEchoServerIP[] = EC2_IP;
 #endif
 
-/* IOTEMBSYS: Create the TCP sender thread */
-void tcp_sender_thread(void* p1, void* p2, void* p3) {
+/* IOTEMBSYS: Implement the HTTP client functionality */
+void http_client_thread(void* p1, void* p2, void* p3) {
 	int sock;
 	struct sockaddr_in addr4;
-	struct socket_queue_item socket_item;
+	const int32_t timeout = 5 * MSEC_PER_SEC;
 
 	k_event_init(&unblock_sender_);
 
@@ -212,42 +240,27 @@ void tcp_sender_thread(void* p1, void* p2, void* p3) {
 			printk("This should not be happening!");
 			continue;
 		}
-		printk("Sending data");
 
 		if (connect_socket(AF_INET, kEchoServerIP, HTTP_PORT,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
 			LOG_ERR("Connect failed");
 			continue;
 		}
-		
-		// TODO: shouldn't need a delay here
-		k_msleep(1000);
-
-		// Relinquish ownership of this socket by passing it to the receiver task
-		socket_item.sock = sock;
-		k_fifo_put(&socket_queue_, &socket_item);
-	}
-}
-K_THREAD_DEFINE(tcp_sender_tid, 1000 /*stack size*/,
-                tcp_sender_thread, NULL, NULL, NULL,
-                5 /*priority*/, 0, 0);
-
-/* IOTEMBSYS: Create the TCP receiver thread */
-void tcp_receiver_thread(void* p1, void* p2, void* p3) {
-	struct socket_queue_item* socket_item;
-	const int32_t timeout = 5 * MSEC_PER_SEC;
-
-	k_fifo_init(&socket_queue_);
-
-	while (true) {
-		socket_item = k_fifo_get(&socket_queue_, K_FOREVER);
 
 		struct http_request req;
 
 		memset(&req, 0, sizeof(req));
 		memset(recv_buf_, 0, sizeof(recv_buf_));
 
+#if !IS_POST_REQ
 		req.method = HTTP_GET;
 		req.url = "/get";
+#else
+		req.method = HTTP_POST;
+		req.url = "/post";
+		req.payload_cb = http_payload_cb;
+		// This must match the payload-generating function!
+		req.payload_len = 37;
+#endif
 		req.host = "httpbin.org";
 		req.protocol = "HTTP/1.1";
 		req.response = http_response_cb;
@@ -256,7 +269,7 @@ void tcp_receiver_thread(void* p1, void* p2, void* p3) {
 
 		// This request is synchronous and blocks the thread.
 		printk("Sending HTTP request");
-		int ret = http_client_req(socket_item->sock, &req, timeout, "IPv4 GET");
+		int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
 		if (ret > 0) {
 			printk("HTTP request sent %d bytes", ret);
 		} else {
@@ -264,14 +277,13 @@ void tcp_receiver_thread(void* p1, void* p2, void* p3) {
 		}
 
 		printk("Closing socket");
-		close(socket_item->sock);
+		close(sock);
 
 		printk("HTTP response: %s", recv_buf_);
 	}
 }
-
-K_THREAD_DEFINE(tcp_receiver_tid, 4000 /*stack size*/,
-                tcp_receiver_thread, NULL, NULL, NULL,
+K_THREAD_DEFINE(http_client_tid, 4000 /*stack size*/,
+                http_client_thread, NULL, NULL, NULL,
                 5 /*priority*/, 0, 0);
 
 void main(void)
@@ -301,32 +313,7 @@ void main(void)
 		return;
 	}
 
-	// struct pollfd pfds[1];
-
 	while (1) {
-	// 	if (send_data_) {
-	// 		if (connect_socket(AF_INET, "45.79.112.203", 4242,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
-	// 			LOG_ERR("Connect failed");
-	// 			continue;
-	// 		}
-	// 		(void)send(sock, kData, sizeof(kData), 0);
-
-	// 		pfds[0].fd = 0; // Standard input
-	// 		pfds[0].events = POLLIN; // Tell me when ready to read
-
-	// 		int num_events = poll(pfds, 1, 2500); // 2.5 second timeout
-
-	// 		if (num_events == 0) {
-	// 			printk("No data received");
-	// 		} else {
-	// 			if (recv(sock, recv_buf_, sizeof(recv_buf_) - 1, 0) > 0) {
-	// 				printk("Received: %s", recv_buf_);
-	// 				memset(recv_buf_, 0, sizeof(recv_buf_));
-	// 			}
-	// 		}
-
-	// 		close(sock);
-	// 	}
 		ret = gpio_pin_toggle_dt(&led);
 		/* IOTEMBSYS: Print GPIO state to console. */
 		if (ret < 0) {
@@ -336,17 +323,3 @@ void main(void)
 	}
 }
 
-// /* IOTEMBSYS: Add shell commands and handler. */
-// static int cmd_demo_blink(const struct shell *shell, size_t argc, char **argv)
-// {
-// 	uint32_t interval_ms = atoi(argv[1]);
-// 	shell_print(shell, "Setting interval to: %d", interval_ms);
-
-// 	change_blink_interval(interval_ms);
-// 	return 0;
-// }
-
-// SHELL_STATIC_SUBCMD_SET_CREATE(sub_app,
-// 	SHELL_CMD(blink, NULL, "Change blink interval", cmd_demo_blink),
-// );
-// SHELL_CMD_REGISTER(app, &sub_app, "Application commands", NULL);
