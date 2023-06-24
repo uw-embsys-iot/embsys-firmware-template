@@ -140,7 +140,8 @@ static int on_cmd_sockread_common(int socket_fd,
 	/* No (or not enough) data available on the socket. */
 	bytes_to_skip = digits(socket_data_length) + 2 + 4;
 	if (socket_data_length <= 0) {
-		LOG_ERR("Length problem (%d).  Aborting!", socket_data_length);
+		// TODO(mskobov): This is an annoying bug in the driver that should be fixed.
+		// LOG_ERR("Length problem (%d).  Aborting!", socket_data_length);
 		return -EAGAIN;
 	}
 
@@ -396,6 +397,12 @@ MODEM_CMD_DEFINE(on_cmd_sock_readdata)
 	return on_cmd_sockread_common(mdata.sock_fd, data, len);
 }
 
+// TODO(mskobov): This should be more like the ublox driver.
+// This function should be like MODEM_CMD_DEFINE(on_cmd_socknotifydata)
+// in that driver, and call modem_socket_packet_size_update. Then offload_recvfrom
+// should first call modem_socket_next_packet_size and then wait until data
+// is available.
+
 /* Handler: Data receive indication. */
 MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 {
@@ -621,9 +628,22 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 			     data_cmd, ARRAY_SIZE(data_cmd), sendbuf, &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		errno = -ret;
-		ret = -1;
-		goto exit;
+		// Experimental addition by IOT course instructors
+		if (flags & ZSOCK_MSG_DONTWAIT) {
+			errno = EAGAIN;
+			ret = -1;
+			goto exit;
+		}
+
+		modem_socket_wait_data(&mdata.socket_config, sock);
+		ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+			     data_cmd, ARRAY_SIZE(data_cmd), sendbuf, &mdata.sem_response,
+			     MDM_CMD_TIMEOUT);
+		if (ret < 0) {
+			errno = -ret;
+			ret = -1;
+			goto exit;
+		}
 	}
 
 	/* HACK: use dst address as from */

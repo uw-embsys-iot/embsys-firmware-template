@@ -1,6 +1,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/socket.h>
+
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
@@ -46,6 +49,12 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 /* The amount of time between GPIO blinking. */
 static uint32_t blink_interval_ = DEFAULT_SLEEP_TIME_MS;
 
+/* IOTEMBSYS: Add synchronization to unblock the sender task */
+static struct k_event unblock_sender_;
+
+/* IOTEMBSYS: Add synchronization to pass the socket to the receiver task */
+struct k_fifo socket_queue_;
+
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
@@ -54,6 +63,8 @@ static void change_blink_interval(uint32_t new_interval_ms) {
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 		    uint32_t pins) {
 	printk("Button %d pressed at %" PRIu32 "\n", pins, k_cycle_get_32());
+	k_event_set(&unblock_sender_, 0x001);
+
 	uint32_t interval_ms = 0;
 	if (pins == BIT(sw0.pin)) {
 		interval_ms = 100;
@@ -104,6 +115,125 @@ static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_cal
 	return ret;
 }
 
+static int setup_socket(sa_family_t family, const char *server, int port,
+			int *sock, struct sockaddr *addr, socklen_t addr_len)
+{
+	const char *family_str = family == AF_INET ? "IPv4" : "IPv6";
+	int ret = 0;
+
+	memset(addr, 0, addr_len);
+
+	net_sin(addr)->sin_family = AF_INET;
+	net_sin(addr)->sin_port = htons(port);
+	inet_pton(family, server, &net_sin(addr)->sin_addr);
+
+	*sock = socket(family, SOCK_STREAM, IPPROTO_TCP);
+
+	if (*sock < 0) {
+		LOG_ERR("Failed to create %s HTTP socket (%d)", family_str,
+			-errno);
+	}
+
+	return ret;
+}
+
+static int connect_socket(sa_family_t family, const char *server, int port,
+			  int *sock, struct sockaddr *addr, socklen_t addr_len)
+{
+	int ret;
+
+	ret = setup_socket(family, server, port, sock, addr, addr_len);
+	if (ret < 0 || *sock < 0) {
+		return -1;
+	}
+
+	ret = connect(*sock, addr, addr_len);
+	if (ret < 0) {
+		LOG_ERR("Cannot connect to %s remote (%d)",
+			family == AF_INET ? "IPv4" : "IPv6",
+			-errno);
+		ret = -errno;
+	}
+
+	return ret;
+}
+
+struct socket_queue_item {
+	void* fifo_reserved;
+	int sock;
+};
+
+#define USE_EC2_ECHO_SERVER 1
+
+/* IOTEMBSYS: Create the TCP sender thread */
+void tcp_sender_thread(void* p1, void* p2, void* p3) {
+	int sock;
+	struct sockaddr_in addr4;
+#if !USE_EC2_ECHO_SERVER
+	static const char kEchoServerIP[] = "45.79.112.203";
+#else
+	static const char kEchoServerIP[] = "44.203.155.243";
+#endif
+	static const char kData[] = "hello!\r\n";
+	struct socket_queue_item socket_item;
+
+	k_event_init(&unblock_sender_);
+
+	while (true) {
+		uint32_t  events;
+
+		events = k_event_wait(&unblock_sender_, 0xFFF, true, K_FOREVER);
+		if (events == 0) {
+			printk("This should not be happening!");
+			continue;
+		}
+		printk("Sending data");
+
+		if (connect_socket(AF_INET, kEchoServerIP, 4242,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
+			LOG_ERR("Connect failed");
+			continue;
+		}
+		(void)send(sock, kData, sizeof(kData), 0);
+		
+		// TODO: shouldn't need a delay here
+		k_msleep(1000);
+
+		// Relinquish ownership of this socket by passing it to the receiver task
+		socket_item.sock = sock;
+		k_fifo_put(&socket_queue_, &socket_item);
+	}
+}
+K_THREAD_DEFINE(tcp_sender_tid, 1000 /*stack size*/,
+                tcp_sender_thread, NULL, NULL, NULL,
+                5 /*priority*/, 0, 0);
+
+/* IOTEMBSYS: Create the TCP receiver thread */
+void tcp_receiver_thread(void* p1, void* p2, void* p3) {
+	struct socket_queue_item* socket_item;
+	static char recv_buf_[100];
+
+	k_fifo_init(&socket_queue_);
+
+	while (true) {
+		socket_item = k_fifo_get(&socket_queue_, K_FOREVER);
+		if (socket_item == 0) {
+			printk("This should not be happening!");
+			continue;
+		}
+		printk("Receiving data...");
+		while (recv(socket_item->sock, recv_buf_, sizeof(recv_buf_) - 1, 0) == 0) {
+			printk("No data was received");
+		}
+		printk("Received: %s", recv_buf_);
+		printk("Closing socket");
+		close(socket_item->sock);
+	}
+}
+
+K_THREAD_DEFINE(tcp_receiver_tid, 1000 /*stack size*/,
+                tcp_receiver_thread, NULL, NULL, NULL,
+                5 /*priority*/, 0, 0);
+
 void main(void)
 {
 	int ret;
@@ -131,7 +261,32 @@ void main(void)
 		return;
 	}
 
+	// struct pollfd pfds[1];
+
 	while (1) {
+	// 	if (send_data_) {
+	// 		if (connect_socket(AF_INET, "45.79.112.203", 4242,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
+	// 			LOG_ERR("Connect failed");
+	// 			continue;
+	// 		}
+	// 		(void)send(sock, kData, sizeof(kData), 0);
+
+	// 		pfds[0].fd = 0; // Standard input
+	// 		pfds[0].events = POLLIN; // Tell me when ready to read
+
+	// 		int num_events = poll(pfds, 1, 2500); // 2.5 second timeout
+
+	// 		if (num_events == 0) {
+	// 			printk("No data received");
+	// 		} else {
+	// 			if (recv(sock, recv_buf_, sizeof(recv_buf_) - 1, 0) > 0) {
+	// 				printk("Received: %s", recv_buf_);
+	// 				memset(recv_buf_, 0, sizeof(recv_buf_));
+	// 			}
+	// 		}
+
+	// 		close(sock);
+	// 	}
 		ret = gpio_pin_toggle_dt(&led);
 		/* IOTEMBSYS: Print GPIO state to console. */
 		if (ret < 0) {
