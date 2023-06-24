@@ -417,6 +417,9 @@ MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 		return 0;
 	}
 
+	/* Modem does not tell packet size. Set dummy for receive. */
+	modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
+
 	/* Data ready indication. */
 	LOG_INF("Data Receive Indication for socket: %d", sock_fd);
 	modem_socket_data_ready(&mdata.socket_config, sock);

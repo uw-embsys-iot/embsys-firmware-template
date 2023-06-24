@@ -3,6 +3,7 @@
 
 #include <zephyr/net/net_ip.h>
 #include <zephyr/net/socket.h>
+#include <zephyr/net/http/client.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
@@ -54,6 +55,10 @@ static struct k_event unblock_sender_;
 
 /* IOTEMBSYS: Add synchronization to pass the socket to the receiver task */
 struct k_fifo socket_queue_;
+
+/* IOTEMBSYS: Create a buffer for receiving HTTP responses */
+#define MAX_RECV_BUF_LEN 512
+static uint8_t recv_buf_[MAX_RECV_BUF_LEN];
 
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
@@ -163,18 +168,38 @@ struct socket_queue_item {
 	int sock;
 };
 
-#define USE_EC2_ECHO_SERVER 1
+/* IOTEMBSYS: Create a HTTP response handler/callback. */
+static void http_response_cb(struct http_response *rsp,
+			enum http_final_call final_data,
+			void *user_data)
+{
+	if (final_data == HTTP_DATA_MORE) {
+		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
+	} else if (final_data == HTTP_DATA_FINAL) {
+		LOG_INF("All the data received (%zd bytes)", rsp->data_len);
+	}
+
+	LOG_INF("Response to %s", (const char *)user_data);
+	LOG_INF("Response status %s", rsp->http_status);
+}
+
+#define USE_EC2_ECHO_SERVER 0
+
+#define TCPBIN_IP "45.79.112.203"
+#define HTTPBIN_IP "100.26.90.23"
+#define TCP_PORT 4242
+#define HTTP_PORT 80
+
+#if !USE_EC2_ECHO_SERVER
+	static const char kEchoServerIP[] = HTTPBIN_IP;
+#else
+	static const char kEchoServerIP[] = "44.203.155.243";
+#endif
 
 /* IOTEMBSYS: Create the TCP sender thread */
 void tcp_sender_thread(void* p1, void* p2, void* p3) {
 	int sock;
 	struct sockaddr_in addr4;
-#if !USE_EC2_ECHO_SERVER
-	static const char kEchoServerIP[] = "45.79.112.203";
-#else
-	static const char kEchoServerIP[] = "44.203.155.243";
-#endif
-	static const char kData[] = "hello!\r\n";
 	struct socket_queue_item socket_item;
 
 	k_event_init(&unblock_sender_);
@@ -189,11 +214,10 @@ void tcp_sender_thread(void* p1, void* p2, void* p3) {
 		}
 		printk("Sending data");
 
-		if (connect_socket(AF_INET, kEchoServerIP, 4242,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
+		if (connect_socket(AF_INET, kEchoServerIP, HTTP_PORT,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
 			LOG_ERR("Connect failed");
 			continue;
 		}
-		(void)send(sock, kData, sizeof(kData), 0);
 		
 		// TODO: shouldn't need a delay here
 		k_msleep(1000);
@@ -210,27 +234,43 @@ K_THREAD_DEFINE(tcp_sender_tid, 1000 /*stack size*/,
 /* IOTEMBSYS: Create the TCP receiver thread */
 void tcp_receiver_thread(void* p1, void* p2, void* p3) {
 	struct socket_queue_item* socket_item;
-	static char recv_buf_[100];
+	const int32_t timeout = 5 * MSEC_PER_SEC;
 
 	k_fifo_init(&socket_queue_);
 
 	while (true) {
 		socket_item = k_fifo_get(&socket_queue_, K_FOREVER);
-		if (socket_item == 0) {
-			printk("This should not be happening!");
-			continue;
+
+		struct http_request req;
+
+		memset(&req, 0, sizeof(req));
+		memset(recv_buf_, 0, sizeof(recv_buf_));
+
+		req.method = HTTP_GET;
+		req.url = "/get";
+		req.host = "httpbin.org";
+		req.protocol = "HTTP/1.1";
+		req.response = http_response_cb;
+		req.recv_buf = recv_buf_;
+		req.recv_buf_len = sizeof(recv_buf_);
+
+		// This request is synchronous and blocks the thread.
+		printk("Sending HTTP request");
+		int ret = http_client_req(socket_item->sock, &req, timeout, "IPv4 GET");
+		if (ret > 0) {
+			printk("HTTP request sent %d bytes", ret);
+		} else {
+			printk("HTTP request failed: %d", ret);
 		}
-		printk("Receiving data...");
-		while (recv(socket_item->sock, recv_buf_, sizeof(recv_buf_) - 1, 0) == 0) {
-			printk("No data was received");
-		}
-		printk("Received: %s", recv_buf_);
+
 		printk("Closing socket");
 		close(socket_item->sock);
+
+		printk("HTTP response: %s", recv_buf_);
 	}
 }
 
-K_THREAD_DEFINE(tcp_receiver_tid, 1000 /*stack size*/,
+K_THREAD_DEFINE(tcp_receiver_tid, 4000 /*stack size*/,
                 tcp_receiver_thread, NULL, NULL, NULL,
                 5 /*priority*/, 0, 0);
 
