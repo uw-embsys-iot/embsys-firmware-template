@@ -11,6 +11,10 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 /* IOTEMBSYS: Add required import shell and/or others */
 //#include <zephyr/shell/shell.h>
 
+/* IOTEMBSYS: Add required import for settings */
+#include <zephyr/settings/settings.h>
+#include <zephyr/storage/flash_map.h>
+
 #include <stdlib.h>
 
 /* 1000 msec = 1 sec */
@@ -63,6 +67,49 @@ static uint8_t recv_buf_[MAX_RECV_BUF_LEN];
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
+
+/* IOTEMBSYS: Define a default settings val and configuration access */
+#define DEFAULT_BOOT_COUNT_VALUE 0
+static uint8_t boot_count = DEFAULT_BOOT_COUNT_VALUE;
+
+static int foo_settings_set(const char *name, size_t len,
+                            settings_read_cb read_cb, void *cb_arg)
+{
+    const char *next;
+    int rc;
+
+    if (settings_name_steq(name, "boot_count", &next) && !next) {
+        if (len != sizeof(boot_count)) {
+            return -EINVAL;
+        }
+
+        rc = read_cb(cb_arg, &boot_count, sizeof(boot_count));
+        if (rc >= 0) {
+            /* key-value pair was properly read.
+             * rc contains value length.
+             */
+            return 0;
+        }
+        /* read-out error */
+        return rc;
+    }
+
+    return -ENOENT;
+}
+
+static int foo_settings_export(int (*storage_func)(const char *name,
+                                                   const void *value,
+                                                   size_t val_len))
+{
+    return storage_func("provisioning/boot_count", &boot_count, sizeof(boot_count));
+}
+
+struct settings_handler my_conf = {
+    .name = "provisioning",
+    .h_set = foo_settings_set,
+    .h_export = foo_settings_export
+};
+
 
 /* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
@@ -299,6 +346,27 @@ void main(void)
 	if (ret < 0) {
 		return;
 	}
+
+	// Erase a flash area if previously written to.
+	// const struct flash_area *my_area;
+	// int err = flash_area_open(FLASH_AREA_ID(storage), &my_area);
+
+	// if (err != 0) {
+	// 	printk("Flash area open failed");
+	// } else {
+	// 	err = flash_area_erase(my_area, 0, FLASH_AREA_SIZE(storage));
+	// }
+
+	/* IOTEMBSYS: Initialize settings subsystem. */
+	settings_subsys_init();
+    settings_register(&my_conf);
+    settings_load();
+
+	/* IOTEMBSYS: Increment boot count. */
+	boot_count++;
+    settings_save_one("provisioning/boot_count", &boot_count, sizeof(boot_count));
+
+    printk("boot_count: %d\n", boot_count);
 
 	/* IOTEMBSYS: Configure joystick GPIOs. */
 	init_joystick_gpio(&sw0, &button_cb_data_0);
