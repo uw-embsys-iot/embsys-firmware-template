@@ -23,7 +23,7 @@ jobs:
       - name: Build firmware
         working-directory: example-application
         run: |
-          west build -b custom_plank app
+          west build -b stm32l496_cell app
 
       - name: Twister Tests
         working-directory: example-application

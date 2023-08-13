@@ -279,7 +279,7 @@ struct socket_queue_item {
 };
 
 /* IOTEMBSYS: Create a HTTP response handler/callback. */
-static void http_response_cb(struct http_response *rsp,
+void http_response_cb(struct http_response *rsp,
 			enum http_final_call final_data,
 			void *user_data)
 {
@@ -337,7 +337,7 @@ int http_proto_payload_cb(int sock, struct http_request *req, void *user_data) {
 	return (int)message_length;
 }
 
-static void http_proto_response_cb(struct http_response *rsp,
+void http_proto_response_cb(struct http_response *rsp,
 			enum http_final_call final_data,
 			void *user_data)
 {
