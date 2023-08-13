@@ -440,11 +440,8 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 			LOG_ERR("HTTP request failed: %d", ret);
 		}
 
-		// 
-		//LOG_INF("Closing the socket");
+		LOG_INF("Closing the socket");
 		close(sock);
-
-		//LOG_INF("HTTP response: %s", recv_buf_);
 	}
 }
 K_THREAD_DEFINE(http_client_tid, 4000 /*stack size*/,
