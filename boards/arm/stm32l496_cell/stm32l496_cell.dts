@@ -85,10 +85,6 @@
 			label = "image-1";
 			reg = <0x00060000 0x00040000>;
 		};
-		scratch_partition: partition@90000 {
-			label = "image-scratch";
-			reg = <0x00090000 0x00020000>;
-		};
 	};
 };
 

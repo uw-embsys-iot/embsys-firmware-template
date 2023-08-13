@@ -309,7 +309,7 @@ void main(void)
 
 	modem = DEVICE_DT_GET(DT_NODELABEL(quectel_bg96));
 	if (!device_is_ready(modem)) {
-		LOG_ERR("Modem not ready");
+		LOG_ERR("Modem is not ready");
 		return;
 	}
 
