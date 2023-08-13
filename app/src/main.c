@@ -276,7 +276,7 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 			printk("HTTP request failed: %d", ret);
 		}
 
-		printk("Closing socket");
+		printk("Closing the socket");
 		close(sock);
 
 		printk("HTTP response: %s", recv_buf_);
