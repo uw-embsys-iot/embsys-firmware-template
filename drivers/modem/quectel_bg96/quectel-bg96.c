@@ -146,9 +146,12 @@ static int on_cmd_sockread_common(int socket_fd,
 	}
 
 	/* check to make sure we have all of the data. */
-	if (net_buf_frags_len(data->rx_buf) < (socket_data_length + bytes_to_skip)) {
-		LOG_DBG("Not enough data -- wait!");
+	int frag_len = net_buf_frags_len(data->rx_buf);
+	if (frag_len < (socket_data_length + bytes_to_skip)) {
+		// TODO(mskobov): This might break raw TCP sockets
+		LOG_DBG("Not enough data. Want: %d + %d, have %d", socket_data_length, bytes_to_skip, frag_len);
 		return -EAGAIN;
+		//LOG_DBG("Not enough data -- continuing!");
 	}
 
 	/* Skip "len" and CRLF */
@@ -175,6 +178,7 @@ static int on_cmd_sockread_common(int socket_fd,
 		goto exit;
 	}
 
+	LOG_DBG("Reading socket data");
 	ret = net_buf_linearize(sock_data->recv_buf, sock_data->recv_buf_len,
 				data->rx_buf, 0, (uint16_t)socket_data_length);
 	data->rx_buf = net_buf_skip(data->rx_buf, ret);
@@ -187,6 +191,7 @@ static int on_cmd_sockread_common(int socket_fd,
 
 exit:
 	/* remove packet from list (ignore errors) */
+	LOG_DBG("Remove packet from list: %d", socket_data_length);
 	(void)modem_socket_packet_size_update(&mdata.socket_config, sock,
 					      -socket_data_length);
 
@@ -630,6 +635,7 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     data_cmd, ARRAY_SIZE(data_cmd), sendbuf, &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
+	LOG_DBG("QIRD cmd complete");
 	if (ret < 0) {
 		// Experimental addition by IOT course instructors
 		if (flags & ZSOCK_MSG_DONTWAIT) {
@@ -638,6 +644,7 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 			goto exit;
 		}
 
+		LOG_DBG("modem_socket_wait_data");
 		modem_socket_wait_data(&mdata.socket_config, sock);
 		ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     data_cmd, ARRAY_SIZE(data_cmd), sendbuf, &mdata.sem_response,

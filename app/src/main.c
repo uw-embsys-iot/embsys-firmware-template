@@ -133,7 +133,7 @@ static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, si
 	pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
 
 	/* Fill in the reboot count */
-	message.boot_count = 13;
+	message.boot_count = boot_count;
 
 	/* Now we are ready to encode the message! */
 	status = pb_encode(&stream, StatusUpdateRequest_fields, &message);
@@ -345,34 +345,34 @@ static void http_proto_response_cb(struct http_response *rsp,
 		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
 	} else if (final_data == HTTP_DATA_FINAL) {
 		LOG_INF("All the data received (%zd bytes)", rsp->data_len);
-		
-		// This assumes the response fits in a single buffer.
-		recv_buf_[rsp->data_len] = '\0';
 
 		// Decode the protobuf response.
-		decode_status_update_response(recv_buf_, rsp->data_len);
+		decode_status_update_response(rsp->body_frag_start, rsp->body_frag_len);
 	}
 
 	LOG_INF("Response to %s", (const char *)user_data);
 	LOG_INF("Response status %s", rsp->http_status);
 }
 
-#define USE_EC2_SERVER 0
+#define USE_EC2_SERVER 1
 
 // WARNING: These IPs are not static! Use a DNS lookup tool
 // to get the latest IP.
 #define TCPBIN_IP "45.79.112.203"
 #define HTTPBIN_IP "54.204.94.184"
-#define EC2_IP "44.203.155.243"
+#define EC2_IP "54.158.227.114"
 #define TCP_PORT 4242
-#define HTTP_PORT 80
 #define IS_POST_REQ 1
 #define USE_PROTO 1
 
 #if !USE_EC2_SERVER
 	static const char kEchoServerIP[] = HTTPBIN_IP;
+	#define HTTP_PORT 80
+	#define HOST "httpbin.org"
 #else
 	static const char kEchoServerIP[] = EC2_IP;
+	#define HTTP_PORT 8080
+	#define HOST EC2_IP ":8080"
 #endif
 
 /* IOTEMBSYS: Implement the HTTP client functionality */
@@ -407,18 +407,21 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 		req.url = "/get";
 #else
 		req.method = HTTP_POST;
-		req.url = "/post";
 #if !USE_PROTO
+		req.url = "/post";
 		req.payload_cb = http_payload_cb;
-#else
-		req.payload_cb = http_proto_payload_cb;
-#endif
 		// This must match the payload-generating function!
-		// TODO: this needs to be implemented differently.
-		//req.payload_len = 37;
+		req.payload_len = 37;
+#else
+		req.url = "/status_update";
+		req.payload_cb = http_proto_payload_cb;
+
+		// When set to 0, this does chunked encoding
 		req.payload_len = 2;
 #endif
-		req.host = "httpbin.org";
+		
+#endif // IS_POST_REQ
+		req.host = HOST;
 		req.protocol = "HTTP/1.1";
 #if !USE_PROTO
 		req.response = http_response_cb;
@@ -437,10 +440,11 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 			LOG_ERR("HTTP request failed: %d", ret);
 		}
 
-		LOG_INF("Closing the socket");
+		// 
+		//LOG_INF("Closing the socket");
 		close(sock);
 
-		LOG_INF("HTTP response: %s", recv_buf_);
+		//LOG_INF("HTTP response: %s", recv_buf_);
 	}
 }
 K_THREAD_DEFINE(http_client_tid, 4000 /*stack size*/,
