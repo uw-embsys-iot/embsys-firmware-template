@@ -8,12 +8,17 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
-/* IOTEMBSYS: Add required import shell and/or others */
+/* IOTEMBSYS: Add required iheadersmport shell and/or others */
 //#include <zephyr/shell/shell.h>
 
-/* IOTEMBSYS: Add required import for settings */
+/* IOTEMBSYS: Add required headers for settings */
 #include <zephyr/settings/settings.h>
 #include <zephyr/storage/flash_map.h>
+
+/* IOTEMBSYS: Add required headers for protobufs */
+#include <pb_encode.h>
+#include <pb_decode.h>
+#include "api/api.pb.h"
 
 #include <stdlib.h>
 
@@ -61,7 +66,7 @@ static struct k_event unblock_sender_;
 struct k_fifo socket_queue_;
 
 /* IOTEMBSYS: Create a buffer for receiving HTTP responses */
-#define MAX_RECV_BUF_LEN 512
+#define MAX_RECV_BUF_LEN 1024
 static uint8_t recv_buf_[MAX_RECV_BUF_LEN];
 
 static void change_blink_interval(uint32_t new_interval_ms) {
@@ -110,6 +115,64 @@ struct settings_handler my_conf = {
     .h_export = foo_settings_export
 };
 
+/* IOTEMBSYS: Add protobuf encoding and decoding. */
+static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, size_t *message_length)
+{
+	bool status;
+
+	/* Allocate space on the stack to store the message data.
+	 *
+	 * Nanopb generates simple struct definitions for all the messages.
+	 * - check out the contents of api.pb.h!
+	 * It is a good idea to always initialize your structures
+	 * so that you do not have garbage data from RAM in there.
+	 */
+	StatusUpdateRequest message = StatusUpdateRequest_init_zero;
+
+	/* Create a stream that will write to our buffer. */
+	pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
+
+	/* Fill in the reboot count */
+	message.boot_count = 13;
+
+	/* Now we are ready to encode the message! */
+	status = pb_encode(&stream, StatusUpdateRequest_fields, &message);
+	*message_length = stream.bytes_written;
+
+	if (!status) {
+		printk("Encoding failed: %s\n", PB_GET_ERROR(&stream));
+	}
+
+	return status;
+}
+
+static bool decode_status_update_response(uint8_t *buffer, size_t message_length)
+{
+	bool status = false;
+	if (message_length == 0) {
+		LOG_WRN("Message length is 0");
+		return status;
+	}
+
+	/* Allocate space for the decoded message. */
+	StatusUpdateResponse message = StatusUpdateResponse_init_zero;
+
+	/* Create a stream that reads from the buffer. */
+	pb_istream_t stream = pb_istream_from_buffer(buffer, message_length);
+
+	/* Now we are ready to decode the message. */
+	status = pb_decode(&stream, StatusUpdateResponse_fields, &message);
+
+	/* Check for errors... */
+	if (status) {
+		/* Print the data contained in the message. */
+		printk("Response message: %s\n", message.message);
+	} else {
+		printk("Decoding failed: %s\n", PB_GET_ERROR(&stream));
+	}
+
+	return status;
+}
 
 /* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
@@ -256,14 +319,55 @@ int http_payload_cb(int sock, struct http_request *req, void *user_data) {
 	return pos;
 }
 
+/* IOTEMBSYS: Create a HTTP request and response with protobuf. */
+int http_proto_payload_cb(int sock, struct http_request *req, void *user_data) {
+	static uint8_t buffer[StatusUpdateRequest_size];
+	size_t message_length;
+
+	/* Encode our message */
+	if (!encode_status_update_request(buffer, sizeof(buffer), &message_length)) {
+		LOG_ERR("Encoding request failed");
+		return 0;
+	} else {
+		LOG_INF("Sending proto to server. Length: %d", (int)message_length);
+	}
+
+	(void)send(sock, buffer, message_length, 0);
+
+	return (int)message_length;
+}
+
+static void http_proto_response_cb(struct http_response *rsp,
+			enum http_final_call final_data,
+			void *user_data)
+{
+	if (final_data == HTTP_DATA_MORE) {
+		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
+	} else if (final_data == HTTP_DATA_FINAL) {
+		LOG_INF("All the data received (%zd bytes)", rsp->data_len);
+		
+		// This assumes the response fits in a single buffer.
+		recv_buf_[rsp->data_len] = '\0';
+
+		// Decode the protobuf response.
+		decode_status_update_response(recv_buf_, rsp->data_len);
+	}
+
+	LOG_INF("Response to %s", (const char *)user_data);
+	LOG_INF("Response status %s", rsp->http_status);
+}
+
 #define USE_EC2_SERVER 0
 
+// WARNING: These IPs are not static! Use a DNS lookup tool
+// to get the latest IP.
 #define TCPBIN_IP "45.79.112.203"
-#define HTTPBIN_IP "100.26.90.23"
+#define HTTPBIN_IP "54.204.94.184"
 #define EC2_IP "44.203.155.243"
 #define TCP_PORT 4242
 #define HTTP_PORT 80
 #define IS_POST_REQ 1
+#define USE_PROTO 1
 
 #if !USE_EC2_SERVER
 	static const char kEchoServerIP[] = HTTPBIN_IP;
@@ -304,29 +408,39 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 #else
 		req.method = HTTP_POST;
 		req.url = "/post";
+#if !USE_PROTO
 		req.payload_cb = http_payload_cb;
+#else
+		req.payload_cb = http_proto_payload_cb;
+#endif
 		// This must match the payload-generating function!
-		req.payload_len = 37;
+		// TODO: this needs to be implemented differently.
+		//req.payload_len = 37;
+		req.payload_len = 2;
 #endif
 		req.host = "httpbin.org";
 		req.protocol = "HTTP/1.1";
+#if !USE_PROTO
 		req.response = http_response_cb;
+#else
+		req.response = http_proto_response_cb;
+#endif
 		req.recv_buf = recv_buf_;
 		req.recv_buf_len = sizeof(recv_buf_);
 
 		// This request is synchronous and blocks the thread.
-		printk("Sending HTTP request");
+		LOG_INF("Sending HTTP request");
 		int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
 		if (ret > 0) {
-			printk("HTTP request sent %d bytes", ret);
+			LOG_INF("HTTP request sent %d bytes", ret);
 		} else {
-			printk("HTTP request failed: %d", ret);
+			LOG_ERR("HTTP request failed: %d", ret);
 		}
 
-		printk("Closing the socket");
+		LOG_INF("Closing the socket");
 		close(sock);
 
-		printk("HTTP response: %s", recv_buf_);
+		LOG_INF("HTTP response: %s", recv_buf_);
 	}
 }
 K_THREAD_DEFINE(http_client_tid, 4000 /*stack size*/,
