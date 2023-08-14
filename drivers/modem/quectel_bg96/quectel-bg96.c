@@ -1040,12 +1040,14 @@ static int modem_pdp_context_activate(void)
 	int ret;
 	int retry_count = 0;
 
+	LOG_INF("Activating context");
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     NULL, 0U, "AT+QIACT=1", &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
 
 	/* If there is trouble activating the PDP context, we try to deactivate/reactive it. */
 	while (ret == -EIO && retry_count < MDM_PDP_ACT_RETRY_COUNT) {
+		LOG_INF("Deactivating context");
 		ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     NULL, 0U, "AT+QIDEACT=1", &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
@@ -1055,6 +1057,7 @@ static int modem_pdp_context_activate(void)
 			return ret;
 		}
 
+		LOG_INF("Reactivating context");
 		ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     NULL, 0U, "AT+QIACT=1", &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
@@ -1082,13 +1085,6 @@ static int modem_setup(void)
 	/* Setup the pins to ensure that Modem is enabled. */
 	pin_init();
 
-restart:
-
-	counter = 0;
-
-	/* stop RSSI delay work */
-	k_work_cancel_delayable(&mdata.rssi_query_work);
-
 	/* Let the modem respond. */
 	LOG_INF("Waiting for modem to respond");
 	ret = k_sem_take(&mdata.sem_response, MDM_MAX_BOOT_TIME);
@@ -1104,6 +1100,13 @@ restart:
 	if (ret < 0) {
 		goto error;
 	}
+
+restart:
+
+	counter = 0;
+
+	/* stop RSSI delay work */
+	k_work_cancel_delayable(&mdata.rssi_query_work);
 
 	/* Run commands that may fail repeatedly until they succeed. */
     ret = -1;
@@ -1123,6 +1126,7 @@ restart_rssi:
 	k_sleep(MDM_WAIT_FOR_RSSI_DELAY);
 
 	/* Keep trying to read RSSI until we get a valid value - Eventually, exit. */
+	LOG_INF("RSSI query %d / %d", rssi_retry_count, MDM_NETWORK_RETRY_COUNT);
 	while (counter++ < MDM_WAIT_FOR_RSSI_COUNT &&
 	      (mdata.mdm_rssi >= 0 || mdata.mdm_rssi <= -1000)) {
 		modem_rssi_query_work(NULL);
