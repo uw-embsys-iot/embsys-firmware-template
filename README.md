@@ -3,13 +3,17 @@
 ## What works
 
 - Protobuf (assignment 7)
+- Provisioning/boot counter (assignment 7)
 - MCUboot w/ partitions and mcumgr (assignment 8)
 - Github actions (assignment 10)
 
 ## Remaining items
 
 - OTA download (assignment 9)
+- Push releases to S3 with CI (assignment 10)
 - Internal metrics/tracing (assignment 11)
+- Fix the modem TCP/HTTP behavior
+- Enable SSL/TLS on modem
 
 # Zephyr Example Application
 

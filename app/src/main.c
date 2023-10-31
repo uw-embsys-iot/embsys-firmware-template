@@ -21,6 +21,7 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 #include "api/api.pb.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 
 /* 1000 msec = 1 sec */
 #define DEFAULT_SLEEP_TIME_MS   1000
@@ -355,6 +356,7 @@ void http_proto_response_cb(struct http_response *rsp,
 }
 
 #define USE_EC2_SERVER 1
+#define OTA_UPADE_ENABLED 1
 
 // WARNING: These IPs are not static! Use a DNS lookup tool
 // to get the latest IP.
@@ -365,6 +367,7 @@ void http_proto_response_cb(struct http_response *rsp,
 #define IS_POST_REQ 1
 #define USE_PROTO 1
 
+#if !OTA_UPADE_ENABLED
 #if !USE_EC2_SERVER
 	static const char kEchoServerIP[] = HTTPBIN_IP;
 	#define HTTP_PORT 80
@@ -444,6 +447,111 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 		close(sock);
 	}
 }
+#else //OTA_UPADE_ENABLED
+
+// Just a random AWS URL
+static const char kOtaReleaseServer[] = "54.231.234.1";
+#define HTTP_PORT 80
+#define HOST "iotemb-firmware-releases.s3.amazonaws.com"
+
+// TODO: this should not be static!
+#define OTA_BIN_PATH "/zephyr.signed.bin"
+
+static char range_header[] = "Range: bytes=xxxxxxx-xxxxxxx\r\n";
+static const char kRangeFormat[] = "Range: bytes=%d-%d\r\n";
+static const char* headers[] = {
+	range_header,
+	NULL,
+};
+
+// TODO: this should not be a constant!!
+static int total_size;
+static int read_offset;
+static const int kReadSize = 512;
+
+/* IOTEMBSYS: Implement the OTA HTTP download. */
+void http_ota_response_cb(struct http_response *rsp,
+			enum http_final_call final_data,
+			void *user_data)
+{
+	if (final_data == HTTP_DATA_MORE) {
+		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
+	} else if (final_data == HTTP_DATA_FINAL) {
+		LOG_INF("All the data received (%zd bytes)", rsp->data_len);
+		
+		// This assumes the response fits in a single buffer.
+		// recv_buf_[rsp->data_len] = '\0';
+	}
+
+	//LOG_INF("Response to %s", (const char *)user_data);
+	LOG_INF("Response status %s", rsp->http_status);
+	LOG_INF("Content Length: %d", rsp->content_length);
+
+	// TODO: read the Content-Range header and get the total length here (or in header callbacks)
+	total_size -= rsp->content_length;
+	read_offset +=  rsp->content_length;
+}
+
+/* IOTEMBSYS: Implement the HTTP OTA task */
+void http_client_thread(void* p1, void* p2, void* p3) {
+	int sock;
+	struct sockaddr_in addr4;
+	const int32_t timeout = 5 * MSEC_PER_SEC;
+
+	k_event_init(&unblock_sender_);
+
+	while (true) {
+		uint32_t  events;
+
+		events = k_event_wait(&unblock_sender_, 0xFFF, true, K_FOREVER);
+		if (events == 0) {
+			printk("This should not be happening!");
+			continue;
+		}
+
+		// TODO: this should not be constant!!
+		total_size = 225976;
+		read_offset = 0;
+
+		if (connect_socket(AF_INET, kOtaReleaseServer, HTTP_PORT,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
+			LOG_ERR("Connect failed");
+			continue;
+		}
+
+		struct http_request req;
+
+		memset(&req, 0, sizeof(req));
+		memset(recv_buf_, 0, sizeof(recv_buf_));
+
+		while(total_size) {
+			snprintf(range_header, sizeof(range_header), kRangeFormat, read_offset, read_offset + kReadSize - 1);
+			req.method = HTTP_GET;
+			req.url = OTA_BIN_PATH;
+			req.host = HOST;
+			req.protocol = "HTTP/1.1";
+			req.payload_len = 0;
+			req.payload_cb = NULL;
+			req.response = http_ota_response_cb;
+			req.recv_buf = recv_buf_;
+			req.recv_buf_len = sizeof(recv_buf_);
+			req.header_fields = headers;
+
+			// This request is synchronous and blocks the thread.
+			LOG_INF("Sending HTTP request: %d - %d", read_offset, read_offset + kReadSize - 1);
+			int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
+			if (ret > 0) {
+				LOG_INF("HTTP request sent %d bytes", ret);
+			} else {
+				LOG_ERR("HTTP request failed: %d", ret);
+			}
+		}
+
+		LOG_INF("Closing the socket");
+		close(sock);
+	}
+}
+#endif
+
 K_THREAD_DEFINE(http_client_tid, 4000 /*stack size*/,
                 http_client_thread, NULL, NULL, NULL,
                 5 /*priority*/, 0, 0);
