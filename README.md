@@ -1,3 +1,16 @@
+# IOT Embsys Notes
+
+## What works
+
+- Protobuf (assignment 7)
+- MCUboot w/ partitions and mcumgr (assignment 8)
+- Github actions (assignment 10)
+
+## Remaining items
+
+- OTA download (assignment 9)
+- Internal metrics/tracing (assignment 11)
+
 # Zephyr Example Application
 
 This repository contains a Zephyr example application. The main purpose of this
