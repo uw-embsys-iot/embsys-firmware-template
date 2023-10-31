@@ -140,14 +140,18 @@ static int on_cmd_sockread_common(int socket_fd,
 	/* No (or not enough) data available on the socket. */
 	bytes_to_skip = digits(socket_data_length) + 2 + 4;
 	if (socket_data_length <= 0) {
-		LOG_ERR("Length problem (%d).  Aborting!", socket_data_length);
+		// TODO(mskobov): This is an annoying bug in the driver that should be fixed.
+		// LOG_ERR("Length problem (%d).  Aborting!", socket_data_length);
 		return -EAGAIN;
 	}
 
 	/* check to make sure we have all of the data. */
-	if (net_buf_frags_len(data->rx_buf) < (socket_data_length + bytes_to_skip)) {
-		LOG_DBG("Not enough data -- wait!");
+	int frag_len = net_buf_frags_len(data->rx_buf);
+	if (frag_len < (socket_data_length + bytes_to_skip)) {
+		// TODO(mskobov): This might break raw TCP sockets
+		LOG_DBG("Not enough data. Want: %d + %d, have %d", socket_data_length, bytes_to_skip, frag_len);
 		return -EAGAIN;
+		//LOG_DBG("Not enough data -- continuing!");
 	}
 
 	/* Skip "len" and CRLF */
@@ -174,6 +178,7 @@ static int on_cmd_sockread_common(int socket_fd,
 		goto exit;
 	}
 
+	LOG_DBG("Reading socket data");
 	ret = net_buf_linearize(sock_data->recv_buf, sock_data->recv_buf_len,
 				data->rx_buf, 0, (uint16_t)socket_data_length);
 	data->rx_buf = net_buf_skip(data->rx_buf, ret);
@@ -186,6 +191,7 @@ static int on_cmd_sockread_common(int socket_fd,
 
 exit:
 	/* remove packet from list (ignore errors) */
+	LOG_DBG("Remove packet from list: %d", socket_data_length);
 	(void)modem_socket_packet_size_update(&mdata.socket_config, sock,
 					      -socket_data_length);
 
@@ -201,7 +207,7 @@ static void socket_close(struct modem_socket *sock)
 	char buf[sizeof("AT+QICLOSE=##")] = {0};
 	int  ret;
 
-	snprintk(buf, sizeof(buf), "AT+QICLOSE=%d", sock->sock_fd);
+	snprintk(buf, sizeof(buf), "AT+QICLOSE=%d", sock->id);
 
 	/* Tell the modem to close the socket. */
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
@@ -241,6 +247,10 @@ MODEM_CMD_DEFINE(on_cmd_exterror)
 /* Handler: +CSQ: <signal_power>[0], <qual>[1] */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_rssi_csq)
 {
+	// IOTEMBSYS: the modem will become connected and allow the app to boot
+	// when it has sufficient signal strength (RSSI). Find the definition of
+	// the MODEM_CMD_DEFINE or try debugging to figure out which variable
+	// needs to become the RSSI
 	int rssi = ATOI(argv[0], 0, "signal_power");
 
 	/* Check the RSSI value. */
@@ -282,6 +292,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_manufacturer)
 /* Handler: <model> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 {
+	// IOTEMBSYS: Implement this handler.
 	size_t out_len = net_buf_linearize(mdata.mdm_model,
 					   sizeof(mdata.mdm_model) - 1,
 					   data->rx_buf, 0, len);
@@ -295,6 +306,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 /* Handler: <rev> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 {
+	// IOTEMBSYS: Implement this handler.
 	size_t out_len = net_buf_linearize(mdata.mdm_revision,
 					   sizeof(mdata.mdm_revision) - 1,
 					   data->rx_buf, 0, len);
@@ -308,6 +320,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 /* Handler: <IMEI> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imei)
 {
+	// IOTEMBSYS: Implement this handler.
 	size_t out_len = net_buf_linearize(mdata.mdm_imei,
 					   sizeof(mdata.mdm_imei) - 1,
 					   data->rx_buf, 0, len);
@@ -335,6 +348,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imsi)
 /* Handler: <ICCID> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_iccid)
 {
+	// IOTEMBSYS: Implement this handler.
 	size_t out_len;
 	char   *p;
 
@@ -354,7 +368,6 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_iccid)
 	LOG_INF("ICCID: %s", mdata.mdm_iccid);
 	return 0;
 }
-
 #endif /* #if defined(CONFIG_MODEM_SIM_NUMBERS) */
 
 /* Handler: TX Ready */
@@ -389,6 +402,12 @@ MODEM_CMD_DEFINE(on_cmd_sock_readdata)
 	return on_cmd_sockread_common(mdata.sock_fd, data, len);
 }
 
+// TODO(mskobov): This should be more like the ublox driver.
+// This function should be like MODEM_CMD_DEFINE(on_cmd_socknotifydata)
+// in that driver, and call modem_socket_packet_size_update. Then offload_recvfrom
+// should first call modem_socket_next_packet_size and then wait until data
+// is available.
+
 /* Handler: Data receive indication. */
 MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 {
@@ -402,6 +421,9 @@ MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 	if (!sock) {
 		return 0;
 	}
+
+	/* Modem does not tell packet size. Set dummy for receive. */
+	modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
 
 	/* Data ready indication. */
 	LOG_INF("Data Receive Indication for socket: %d", sock_fd);
@@ -457,7 +479,7 @@ static ssize_t send_socket_data(struct modem_socket *sock,
 
 	/* Create a buffer with the correct params. */
 	mdata.sock_written = buf_len;
-	snprintk(send_buf, sizeof(send_buf), "AT+QISEND=%d,%ld", sock->sock_fd, (long) buf_len);
+	snprintk(send_buf, sizeof(send_buf), "AT+QISEND=%d,%ld", sock->id, (long) buf_len);
 
 	/* Setup the locks correctly. */
 	k_sem_take(&mdata.cmd_handler_data.sem_tx_lock, K_FOREVER);
@@ -599,7 +621,7 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 		return -1;
 	}
 
-	snprintk(sendbuf, sizeof(sendbuf), "AT+QIRD=%d,%zd", sock->sock_fd, len);
+	snprintk(sendbuf, sizeof(sendbuf), "AT+QIRD=%d,%zd", sock->id, len);
 
 	/* Socket read settings */
 	(void) memset(&sock_data, 0, sizeof(sock_data));
@@ -609,14 +631,29 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 	sock->data	       = &sock_data;
 	mdata.sock_fd	       = sock->sock_fd;
 
-	/* Tell the modem to give us data (AT+QIRD=sock_fd,data_len). */
+	/* Tell the modem to give us data (AT+QIRD=id,data_len). */
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     data_cmd, ARRAY_SIZE(data_cmd), sendbuf, &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
+	LOG_DBG("QIRD cmd complete");
 	if (ret < 0) {
-		errno = -ret;
-		ret = -1;
-		goto exit;
+		// Experimental addition by IOT course instructors
+		if (flags & ZSOCK_MSG_DONTWAIT) {
+			errno = EAGAIN;
+			ret = -1;
+			goto exit;
+		}
+
+		LOG_DBG("modem_socket_wait_data");
+		modem_socket_wait_data(&mdata.socket_config, sock);
+		ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+			     data_cmd, ARRAY_SIZE(data_cmd), sendbuf, &mdata.sem_response,
+			     MDM_CMD_TIMEOUT);
+		if (ret < 0) {
+			errno = -ret;
+			ret = -1;
+			goto exit;
+		}
 	}
 
 	/* HACK: use dst address as from */
@@ -700,7 +737,8 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
 	int		    ret;
 	char		    ip_str[NET_IPV6_ADDR_LEN];
 
-	if (sock->id < mdata.socket_config.base_socket_num - 1) {
+	/* Verify socket has been allocated */
+	if (modem_socket_is_allocated(&mdata.socket_config, sock) == false) {
 		LOG_ERR("Invalid socket_id(%d) from fd:%d",
 			sock->id, sock->sock_fd);
 		errno = EINVAL;
@@ -739,8 +777,8 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
 	}
 
 	/* Formulate the complete string. */
-	snprintk(buf, sizeof(buf), "AT+QIOPEN=%d,%d,\"%s\",\"%s\",%d,0,0", 1, sock->sock_fd, protocol,
-		ip_str, dst_port);
+	snprintk(buf, sizeof(buf), "AT+QIOPEN=%d,%d,\"%s\",\"%s\",%d,0,0", 1, sock->id, protocol,
+		 ip_str, dst_port);
 
 	/* Send out the command. */
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
@@ -797,8 +835,8 @@ static int offload_close(void *obj)
 {
 	struct modem_socket *sock = (struct modem_socket *) obj;
 
-	/* Make sure we assigned an id */
-	if (sock->id < mdata.socket_config.base_socket_num) {
+	/* Make sure socket is allocated */
+	if (modem_socket_is_allocated(&mdata.socket_config, sock) == false) {
 		return 0;
 	}
 
@@ -853,9 +891,9 @@ static void modem_rx(void)
 	while (true) {
 
 		/* Wait for incoming data */
-		k_sem_take(&mdata.iface_data.rx_sem, K_FOREVER);
+		modem_iface_uart_rx_wait(&mctx.iface, K_FOREVER);
 
-		mctx.cmd_handler.process(&mctx.cmd_handler, &mctx.iface);
+		modem_cmd_handler_process(&mctx.cmd_handler, &mctx.iface);
 	}
 }
 
@@ -937,23 +975,26 @@ static const struct modem_cmd unsol_cmds[] = {
 static const struct setup_cmd setup_cmds[] = {
 	// Turn off echo mode
     SETUP_CMD_NOHANDLE("ATE0"),
-    // Turn off flow control
-    SETUP_CMD_NOHANDLE("AT+IFC=0,0"),
-    // Disconnect existing connections
-	SETUP_CMD_NOHANDLE("ATH"),
-    // Set default error message format (numeric values)
-	SETUP_CMD_NOHANDLE("AT+CMEE=1"),
-    // Use the long response code format
+	// Use the long response code format
     SETUP_CMD_NOHANDLE("ATV1"),
-    // TODO(mskobov): Decide on which DTR function mode to use
+	// TODO(mskobov): Decide on which DTR function mode to use
     SETUP_CMD_NOHANDLE("AT&D0"),
-    // Disable power save mode
+	// IOTEMBSYS: Turn off flow control
+    SETUP_CMD_NOHANDLE("AT+IFC=0,0"),
+    // IOTEMBSYS: Disconnect existing connections
+	SETUP_CMD_NOHANDLE("ATH"),
+    // IOTEMBSYS: Set default error message format (numeric values)
+	SETUP_CMD_NOHANDLE("AT+CMEE=1"),
+    // IOTEMBSYS: Disable power save mode
     SETUP_CMD_NOHANDLE("AT+CPSMS=0"),
 
 	/* Commands to read info from the modem (things like IMEI, Model etc). */
 	SETUP_CMD("AT+CGMI", "", on_cmd_atcmdinfo_manufacturer, 0U, ""),
+	// IOTEMBSYS: Get the model info
 	SETUP_CMD("AT+CGMM", "", on_cmd_atcmdinfo_model, 0U, ""),
+	// IOTEMBSYS: Get the modem firmware revision
 	SETUP_CMD("AT+CGMR", "", on_cmd_atcmdinfo_revision, 0U, ""),
+	// IOTEMBSYS: Get the modem IMEI
 	SETUP_CMD("AT+CGSN", "", on_cmd_atcmdinfo_imei, 0U, ""),
 
     // Go into minimum functionality mode
@@ -971,21 +1012,14 @@ static const struct setup_cmd setup_cmds[] = {
     // Set the band configuration to any
     //SETUP_CMD_NOHANDLE("AT+QCFG=\"band\",0xf,0x400a0e189f,0xa0e189f,1"),
 
-    // Go into full functionality mode
+    // IOTEMBSYS: Go into full functionality mode
     SETUP_CMD_NOHANDLE("AT+CFUN=1,0"),
-#if defined(CONFIG_MODEM_SIM_NUMBERS)
-    // TODO(mskobov): Figure out why CIMI isn't working. Likely needs to be called after network setup
-	// SETUP_CMD("AT+CIMI", "", on_cmd_atcmdinfo_imsi, 0U, ""),
-	//SETUP_CMD("AT+QCCID", "", on_cmd_atcmdinfo_iccid, 0U, ""),
-#endif /* #if defined(CONFIG_MODEM_SIM_NUMBERS) */
-	//SETUP_CMD_NOHANDLE("AT+QICSGP=1,1,\"" MDM_APN "\",\""
-	//		   MDM_USERNAME "\",\"" MDM_PASSWORD "\",1"),
 };
 
+// These are commands that can sometimes fail, so they are declared separately.
 static const struct setup_cmd setup_cmds_polling[] = {
 #if defined(CONFIG_MODEM_SIM_NUMBERS)
-    // TODO(mskobov): Figure out why CIMI isn't working. Likely needs to be called after network setup
-	// SETUP_CMD("AT+CIMI", "", on_cmd_atcmdinfo_imsi, 0U, ""),
+    // AT+CPIN doesn't work on some boards, so ignore the errors
     SETUP_CMD_NOHANDLE("AT+CPIN?"),
     // TODO(mskobov): Implement actual CPIN handler
     //SETUP_CMD("AT+CPIN?", "", on_cmd_atcmdinfo_iccid, 0U, ""),
@@ -1006,12 +1040,14 @@ static int modem_pdp_context_activate(void)
 	int ret;
 	int retry_count = 0;
 
+	LOG_INF("Activating context");
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     NULL, 0U, "AT+QIACT=1", &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
 
 	/* If there is trouble activating the PDP context, we try to deactivate/reactive it. */
 	while (ret == -EIO && retry_count < MDM_PDP_ACT_RETRY_COUNT) {
+		LOG_INF("Deactivating context");
 		ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     NULL, 0U, "AT+QIDEACT=1", &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
@@ -1021,6 +1057,7 @@ static int modem_pdp_context_activate(void)
 			return ret;
 		}
 
+		LOG_INF("Reactivating context");
 		ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
 			     NULL, 0U, "AT+QIACT=1", &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
@@ -1048,13 +1085,6 @@ static int modem_setup(void)
 	/* Setup the pins to ensure that Modem is enabled. */
 	pin_init();
 
-restart:
-
-	counter = 0;
-
-	/* stop RSSI delay work */
-	k_work_cancel_delayable(&mdata.rssi_query_work);
-
 	/* Let the modem respond. */
 	LOG_INF("Waiting for modem to respond");
 	ret = k_sem_take(&mdata.sem_response, MDM_MAX_BOOT_TIME);
@@ -1071,9 +1101,18 @@ restart:
 		goto error;
 	}
 
-    /* Run commands that may fail repeatedly until they succeed. */
+restart:
+
+	counter = 0;
+
+	/* stop RSSI delay work */
+	k_work_cancel_delayable(&mdata.rssi_query_work);
+
+	/* Run commands that may fail repeatedly until they succeed. */
     ret = -1;
-    while (ret < 0) {
+	int retry_count = 20;
+    while (ret < 0 && retry_count) {
+		retry_count--;
         ret = modem_cmd_handler_setup_cmds(&mctx.iface, &mctx.cmd_handler,
 					   setup_cmds_polling, ARRAY_SIZE(setup_cmds_polling),
 					   &mdata.sem_response, MDM_REGISTRATION_TIMEOUT);
@@ -1087,6 +1126,7 @@ restart_rssi:
 	k_sleep(MDM_WAIT_FOR_RSSI_DELAY);
 
 	/* Keep trying to read RSSI until we get a valid value - Eventually, exit. */
+	LOG_INF("RSSI query %d / %d", rssi_retry_count, MDM_NETWORK_RETRY_COUNT);
 	while (counter++ < MDM_WAIT_FOR_RSSI_COUNT &&
 	      (mdata.mdm_rssi >= 0 || mdata.mdm_rssi <= -1000)) {
 		modem_rssi_query_work(NULL);
@@ -1160,8 +1200,8 @@ static void modem_net_iface_init(struct net_if *iface)
 	net_if_socket_offload_set(iface, offload_socket);
 }
 
-static struct net_if_api api_funcs = {
-	.init = modem_net_iface_init,
+static struct offloaded_if_api api_funcs = {
+	.iface_api.init = modem_net_iface_init,
 };
 
 static bool offload_is_supported(int family, int type, int proto)
@@ -1209,34 +1249,41 @@ static int modem_init(const struct device *dev)
 			   K_PRIO_COOP(7), NULL);
 
 	/* socket config */
-	mdata.socket_config.sockets	    = &mdata.sockets[0];
-	mdata.socket_config.sockets_len	    = ARRAY_SIZE(mdata.sockets);
-	mdata.socket_config.base_socket_num = MDM_BASE_SOCKET_NUM;
-	ret = modem_socket_init(&mdata.socket_config, &offload_socket_fd_op_vtable);
+	ret = modem_socket_init(&mdata.socket_config, &mdata.sockets[0], ARRAY_SIZE(mdata.sockets),
+				MDM_BASE_SOCKET_NUM, true, &offload_socket_fd_op_vtable);
 	if (ret < 0) {
 		goto error;
 	}
 
-	/* cmd handler */
-	mdata.cmd_handler_data.cmds[CMD_RESP]	   = response_cmds;
-	mdata.cmd_handler_data.cmds_len[CMD_RESP]  = ARRAY_SIZE(response_cmds);
-	mdata.cmd_handler_data.cmds[CMD_UNSOL]	   = unsol_cmds;
-	mdata.cmd_handler_data.cmds_len[CMD_UNSOL] = ARRAY_SIZE(unsol_cmds);
-	mdata.cmd_handler_data.match_buf	   = &mdata.cmd_match_buf[0];
-	mdata.cmd_handler_data.match_buf_len	   = sizeof(mdata.cmd_match_buf);
-	mdata.cmd_handler_data.buf_pool		   = &mdm_recv_pool;
-	mdata.cmd_handler_data.alloc_timeout	   = BUF_ALLOC_TIMEOUT;
-	mdata.cmd_handler_data.eol		   = "\r\n";
-	ret = modem_cmd_handler_init(&mctx.cmd_handler, &mdata.cmd_handler_data);
+	/* cmd handler setup */
+	const struct modem_cmd_handler_config cmd_handler_config = {
+		.match_buf = &mdata.cmd_match_buf[0],
+		.match_buf_len = sizeof(mdata.cmd_match_buf),
+		.buf_pool = &mdm_recv_pool,
+		.alloc_timeout = BUF_ALLOC_TIMEOUT,
+		.eol = "\r\n",
+		.user_data = NULL,
+		.response_cmds = response_cmds,
+		.response_cmds_len = ARRAY_SIZE(response_cmds),
+		.unsol_cmds = unsol_cmds,
+		.unsol_cmds_len = ARRAY_SIZE(unsol_cmds),
+	};
+
+	ret = modem_cmd_handler_init(&mctx.cmd_handler, &mdata.cmd_handler_data,
+				     &cmd_handler_config);
 	if (ret < 0) {
 		goto error;
 	}
 
 	/* modem interface */
-	mdata.iface_data.rx_rb_buf     = &mdata.iface_rb_buf[0];
-	mdata.iface_data.rx_rb_buf_len = sizeof(mdata.iface_rb_buf);
-	ret = modem_iface_uart_init(&mctx.iface, &mdata.iface_data,
-				    MDM_UART_DEV);
+	const struct modem_iface_uart_config uart_config = {
+		.rx_rb_buf = &mdata.iface_rb_buf[0],
+		.rx_rb_buf_len = sizeof(mdata.iface_rb_buf),
+		.dev = MDM_UART_DEV,
+		.hw_flow_control = DT_PROP(MDM_UART_NODE, hw_flow_control),
+	};
+
+	ret = modem_iface_uart_init(&mctx.iface, &mdata.iface_data, &uart_config);
 	if (ret < 0) {
 		goto error;
 	}

@@ -1,0 +1,10 @@
+// To keep things simple, the entire API will be in a single file.
+syntax = "proto3";
+
+message StatusUpdateRequest {
+    int32 boot_count = 1;
+}
+
+message StatusUpdateResponse {
+    string message = 1;
+}
