@@ -199,6 +199,30 @@ exit:
 	return ret;
 }
 
+// TODO: added by instructors for checking received data size.
+static int on_cmd_handle_check_data(int socket_fd,
+				  struct modem_cmd_handler_data *data,
+				  int unread)
+{
+	struct modem_socket	 *sock = NULL;
+	struct socket_read_data	 *sock_data;
+
+	sock = modem_socket_from_fd(&mdata.socket_config, socket_fd);
+	if (!sock) {
+		LOG_ERR("Socket not found! (%d)", socket_fd);
+		return -EINVAL;
+	}
+
+	if (unread) {
+		//LOG_INF("New unread: %d", unread);
+		(void)modem_socket_packet_size_update(&mdata.socket_config, sock, unread);
+	}
+	//  else {
+	// 	LOG_INF("No new unread");
+	// }
+	return 0;
+}
+
 /* Func: socket_close
  * Desc: Function to close the given socket descriptor.
  */
@@ -402,6 +426,17 @@ MODEM_CMD_DEFINE(on_cmd_sock_readdata)
 	return on_cmd_sockread_common(mdata.sock_fd, data, len);
 }
 
+// TODO: added by instructors to update socket data length
+/* Handler: Check for remaining data */
+/* +QIRD: <total_receive_length>,<have_read_length>,<unread_length> */
+MODEM_CMD_DEFINE(on_cmd_sock_checkdata)
+{
+	int unread = ATOI(argv[2], 0, "unread_length");
+	//LOG_INF("Unread: %d", unread);
+	modem_cmd_handler_set_error(data, 0);
+	return on_cmd_handle_check_data(mdata.sock_fd, data, unread);
+}
+
 // TODO(mskobov): This should be more like the ublox driver.
 // This function should be like MODEM_CMD_DEFINE(on_cmd_socknotifydata)
 // in that driver, and call modem_socket_packet_size_update. Then offload_recvfrom
@@ -411,8 +446,9 @@ MODEM_CMD_DEFINE(on_cmd_sock_readdata)
 /* Handler: Data receive indication. */
 MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 {
-	struct modem_socket *sock;
-	int		     sock_fd;
+	struct 	modem_socket *sock;
+	int		sock_fd;
+	char   	sendbuf[sizeof("AT+QIRD=##,####")] = {0};
 
 	sock_fd = ATOI(argv[0], 0, "sock_fd");
 
@@ -422,8 +458,22 @@ MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 		return 0;
 	}
 
-	/* Modem does not tell packet size. Set dummy for receive. */
-	modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
+	// /* Modem does not tell packet size. Set dummy for receive. */
+	// // struct modem_cmd check_cmd[] = { MODEM_CMD("+QIRD: ", on_cmd_sock_checkdata, 3U, ",") };
+	// snprintk(sendbuf, sizeof(sendbuf), "AT+QIRD=%d,0", sock->id);
+	// int ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+	// 			NULL, 0, sendbuf, &mdata.sem_response,
+	// 			K_SECONDS(0));
+	// if (ret < 0) {
+	// 	LOG_ERR("Not sure what to do here");
+	// 	// TODO: Maybe this? Maybe change to 1?
+	// 	modem_socket_packet_size_update(&mdata.socket_config, sock, 0);
+	// }
+	
+	// TODO: This is a hack to allow the poll to happen.
+	if (modem_socket_next_packet_size(&mdata.socket_config, sock) <= 1) {
+		modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
+	}
 
 	/* Data ready indication. */
 	LOG_INF("Data Receive Indication for socket: %d", sock_fd);
@@ -607,6 +657,18 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 	char   sendbuf[sizeof("AT+QIRD=##,####")] = {0};
 	int    ret;
 	struct socket_read_data sock_data;
+
+	/* Modem does not tell packet size. Set dummy for receive. */
+	struct modem_cmd check_cmd[] = { MODEM_CMD("+QIRD: ", on_cmd_sock_checkdata, 3U, ",") };
+	snprintk(sendbuf, sizeof(sendbuf), "AT+QIRD=%d,0", sock->id);
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+				check_cmd, 1, sendbuf, &mdata.sem_response,
+				MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("Not sure what to do here");
+		// TODO: Maybe this? Maybe change to 1?
+		modem_socket_packet_size_update(&mdata.socket_config, sock, 0);
+	}
 
 	/* Modem command to read the data. */
 	struct modem_cmd data_cmd[] = { MODEM_CMD("+QIRD: ", on_cmd_sock_readdata, 0U, "") };
@@ -968,6 +1030,7 @@ static const struct modem_cmd response_cmds[] = {
 static const struct modem_cmd unsol_cmds[] = {
 	MODEM_CMD("+QIURC: \"recv\",",	   on_cmd_unsol_recv,  1U, ""),
 	MODEM_CMD("+QIURC: \"closed\",",   on_cmd_unsol_close, 1U, ""),
+	//MODEM_CMD("+QIRD: ",  on_cmd_sock_checkdata, 3U, ","),
 	MODEM_CMD("RDY", on_cmd_unsol_rdy, 0U, ""),
 };
 

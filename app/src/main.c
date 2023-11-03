@@ -457,17 +457,18 @@ static const char kOtaReleaseServer[] = "54.231.234.1";
 // TODO: this should not be static!
 #define OTA_BIN_PATH "/zephyr.signed.bin"
 
-static char range_header[] = "Range: bytes=xxxxxxx-xxxxxxx\r\n";
-static const char kRangeFormat[] = "Range: bytes=%d-%d\r\n";
-static const char* headers[] = {
-	range_header,
-	NULL,
-};
+// static char range_header[] = "Range: bytes=xxxxxxx-xxxxxxx\r\n";
+// static const char kRangeFormat[] = "Range: bytes=%d-%d\r\n";
+// static const char* headers[] = {
+// 	range_header,
+// 	NULL,
+// };
 
 // TODO: this should not be a constant!!
 static int total_size;
 static int read_offset;
 static const int kReadSize = 512;
+static int total_read_size;
 
 /* IOTEMBSYS: Implement the OTA HTTP download. */
 void http_ota_response_cb(struct http_response *rsp,
@@ -488,8 +489,7 @@ void http_ota_response_cb(struct http_response *rsp,
 	//LOG_INF("Content Length: %d", rsp->content_length);
 
 	// TODO: read the Content-Range header and get the total length here (or in header callbacks)
-	total_size -= rsp->content_length;
-	read_offset +=  rsp->content_length;
+	total_read_size += rsp->body_frag_len;
 }
 
 /* IOTEMBSYS: Implement the HTTP OTA task */
@@ -503,55 +503,52 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 	while (true) {
 		uint32_t  events;
 
+		LOG_INF("Waiting for button");
 		events = k_event_wait(&unblock_sender_, 0xFFF, true, K_FOREVER);
 		if (events == 0) {
 			printk("This should not be happening!");
 			continue;
 		}
 
-		// TODO: this should not be constant!!
-		total_size = 225976;
-		read_offset = 0;
+		total_read_size = 0;
 
-		while(total_size) {
-			if (connect_socket(AF_INET, kOtaReleaseServer, HTTP_PORT,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
-				LOG_ERR("Connect failed");
-				continue;
-			}
-
-			struct http_request req;
-
-			memset(&req, 0, sizeof(req));
-			memset(recv_buf_, 0, sizeof(recv_buf_));
-
-			while(total_size) {
-				snprintf(range_header, sizeof(range_header), kRangeFormat, read_offset, read_offset + kReadSize - 1);
-				req.method = HTTP_GET;
-				req.url = OTA_BIN_PATH;
-				req.host = HOST;
-				req.protocol = "HTTP/1.1";
-				req.payload_len = 0;
-				req.payload_cb = NULL;
-				req.response = http_ota_response_cb;
-				req.recv_buf = recv_buf_;
-				req.recv_buf_len = sizeof(recv_buf_);
-				//req.header_fields = headers;
-
-				// This request is synchronous and blocks the thread.
-				LOG_INF("Sending HTTP request: %d - %d", read_offset, read_offset + kReadSize - 1);
-				int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
-				if (ret > 0) {
-					LOG_INF("HTTP request sent %d bytes", ret);
-				} else {
-					LOG_ERR("HTTP request failed: %d", ret);
-					k_msleep(10000);
-					break;
-				}
-			}
-
-			//LOG_INF("Closing the socket");
-			//close(sock);
+		if (connect_socket(AF_INET, kOtaReleaseServer, HTTP_PORT,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
+			LOG_ERR("Connect failed");
+			continue;
 		}
+
+		struct http_request req;
+
+		memset(&req, 0, sizeof(req));
+		memset(recv_buf_, 0, sizeof(recv_buf_));
+
+		//snprintf(range_header, sizeof(range_header), kRangeFormat, read_offset, read_offset + kReadSize - 1);
+		req.method = HTTP_GET;
+		req.url = OTA_BIN_PATH;
+		req.host = HOST;
+		req.protocol = "HTTP/1.1";
+		req.payload_len = 0;
+		req.payload_cb = NULL;
+		req.response = http_ota_response_cb;
+		req.recv_buf = recv_buf_;
+		req.recv_buf_len = sizeof(recv_buf_);
+
+		// This request is synchronous and blocks the thread.
+		LOG_INF("Sending HTTP request: %d - %d", read_offset, read_offset + kReadSize - 1);
+		int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
+		if (ret > 0) {
+			LOG_INF("HTTP request sent %d bytes", ret);
+			k_msleep(2000);
+			LOG_INF("Received: %d", total_read_size);
+			k_msleep(10000);
+		} else {
+			LOG_ERR("HTTP request failed: %d", ret);
+			k_msleep(10000);
+		}
+
+		LOG_INF("Closing the socket");
+		close(sock);
+		LOG_INF("Request complete");
 	}
 }
 #endif
