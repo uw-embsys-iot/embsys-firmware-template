@@ -394,6 +394,32 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_iccid)
 }
 #endif /* #if defined(CONFIG_MODEM_SIM_NUMBERS) */
 
+// TODO: move this enum elsewhere
+typedef enum {
+	BG9X_CEREG_STATUS_NOT_REGISTERED = 0,
+	BG9X_CEREG_STATUS_REGISTERED_HOME,
+	BG9X_CEREG_STATUS_SEARCHING,
+	BG9X_CEREG_STATUS_DENIED,
+	BG9X_CEREG_STATUS_UNKNOWN,
+	BG9X_CEREG_STATUS_REGISTERED_ROAMING,
+} registration_status_e;
+
+// TODO: move to modem data struct
+static bool registered_;
+
+// Note: this was added by course instructors, and is does not decode
+// all CEREG payloads.
+MODEM_CMD_DEFINE(on_cmd_registration_status)
+{
+	int status = ATOI(argv[1], 0, "cereg");
+
+	LOG_INF("AT+CEREG: %d", status);
+
+	registered_ = (status == BG9X_CEREG_STATUS_REGISTERED_HOME || status == BG9X_CEREG_STATUS_REGISTERED_ROAMING);
+	k_sem_give(&mdata.sem_sock_conn);
+	return 0;
+}
+
 /* Handler: TX Ready */
 MODEM_CMD_DIRECT_DEFINE(on_cmd_tx_ready)
 {
@@ -984,6 +1010,24 @@ static void modem_rssi_query_work(struct k_work *work)
 	}
 }
 
+/* Func: modem_registration_query_work
+ * Desc: Routine to get Modem registration status.
+ */
+static void modem_registration_query_work()
+{
+	struct modem_cmd cmd  = MODEM_CMD("+CEREG: ", on_cmd_registration_status, 2U, ",");
+	static char *send_cmd = "AT+CEREG?";
+	int ret;
+
+	/* query modem registration status */
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+			     &cmd, 1U, send_cmd, &mdata.sem_response,
+			     MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("AT+CEREG? ret:%d", ret);
+	}
+}
+
 /* Func: pin_init
  * Desc: Boot up the Modem.
  */
@@ -1069,8 +1113,8 @@ static const struct setup_cmd setup_cmds[] = {
     // Set up the RAT search sequence (CAT-M1, NB-IoT, GSM)
     SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanseq\",00,1"),
 
-    // Set allowable RATs
-    SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanmode\",0,1"),
+    // Set allowable RATs; 3 = LTE-only, 1 = take effect immediately
+    SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanmode\",3,1"),
 
     // Set the band configuration to any
     //SETUP_CMD_NOHANDLE("AT+QCFG=\"band\",0xf,0x400a0e189f,0xa0e189f,1"),
@@ -1212,10 +1256,18 @@ restart_rssi:
 		goto restart_rssi;
 	}
 
+restart_registration:
+	// Query modem registration status on network
+	modem_registration_query_work();
+
+	if (!registered_) {
+		LOG_INF("Not registered on network");
+		k_sleep(MDM_WAIT_FOR_RSSI_DELAY);
+		goto restart_registration;
+	}
+
 	/* Network is ready - Start RSSI work in the background. */
 	LOG_INF("Network is ready.");
-	k_work_reschedule_for_queue(&modem_workq, &mdata.rssi_query_work,
-				    K_SECONDS(RSSI_TIMEOUT_SECS));
 
 	/* Once the network is ready, we try to activate the PDP context. */
 	ret = modem_pdp_context_activate();

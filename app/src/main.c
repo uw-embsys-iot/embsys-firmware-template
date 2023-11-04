@@ -457,39 +457,76 @@ static const char kOtaReleaseServer[] = "54.231.234.1";
 // TODO: this should not be static!
 #define OTA_BIN_PATH "/zephyr.signed.bin"
 
-// static char range_header[] = "Range: bytes=xxxxxxx-xxxxxxx\r\n";
-// static const char kRangeFormat[] = "Range: bytes=%d-%d\r\n";
-// static const char* headers[] = {
-// 	range_header,
-// 	NULL,
-// };
-
-// TODO: this should not be a constant!!
-static int total_size;
 static int read_offset;
 static const int kReadSize = 512;
 static int total_read_size;
+static int total_write_size;
+static int content_length_;
+static struct flash_area *image_area;
 
 /* IOTEMBSYS: Implement the OTA HTTP download. */
 void http_ota_response_cb(struct http_response *rsp,
 			enum http_final_call final_data,
 			void *user_data)
 {
-	// if (final_data == HTTP_DATA_MORE) {
-	// 	LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
-	// } else if (final_data == HTTP_DATA_FINAL) {
-	// 	LOG_INF("All the data received (%zd bytes)", rsp->data_len);
+	static uint8_t overflow_[8];
+	static uint8_t overflow_count_;
+	uint8_t overflow_inverse = 0;
+	size_t bytes_to_write = rsp->body_frag_len;
+
+	if (total_read_size == 0) {
+		overflow_count_ = 0;
+	}
+
+	if (overflow_count_ != 0) {
+		overflow_inverse = sizeof(overflow_) - overflow_count_;
 		
-	// 	// This assumes the response fits in a single buffer.
-	// 	// recv_buf_[rsp->data_len] = '\0';
-	// }
+		if (overflow_inverse > rsp->body_frag_len) {
+			LOG_INF("Not enough data; copy all to overflow");
+			memcpy(overflow_ + overflow_count_, rsp->body_frag_start, rsp->body_frag_len);
+			overflow_count_ += rsp->body_frag_len;
+			bytes_to_write -= rsp->body_frag_len;
+		} else {
+			memcpy(overflow_ + overflow_count_, rsp->body_frag_start, overflow_inverse);
+			bytes_to_write -= overflow_inverse;
+			LOG_INF("Writing overflow to offset: %d", total_read_size - overflow_count_);
+			int err = flash_area_write(image_area, total_read_size - overflow_count_, overflow_, sizeof(overflow_));
+			if (err != 0) {
+				LOG_ERR("Flash area write failed");
+			} else {
+				total_write_size += sizeof(overflow_);
+			}
+		}
+	}
 
-	//LOG_INF("Response to %s", (const char *)user_data);
-	//LOG_INF("Response status %s", rsp->http_status);
-	//LOG_INF("Content Length: %d", rsp->content_length);
+	if (bytes_to_write != 0) {
+		// This is specific to STM32 flash
+		// TODO: don't write if < 8 bytes to write
+		overflow_count_ = bytes_to_write % 8;
+		int err = flash_area_write(image_area, total_read_size + overflow_inverse, rsp->body_frag_start + overflow_inverse, bytes_to_write - overflow_count_);
+		if (err != 0) {
+			LOG_ERR("Flash area write failed");
+		} else {
+			total_write_size += bytes_to_write - overflow_count_;
+		}
+		if (overflow_count_ != 0) {
+			memset(overflow_, 0, sizeof(overflow_));
+			memcpy(overflow_, rsp->body_frag_start + overflow_inverse + bytes_to_write - overflow_count_, overflow_count_);
+			if (final_data == HTTP_DATA_FINAL) {
+				err = flash_area_write(image_area, total_read_size + overflow_inverse + bytes_to_write - overflow_count_, overflow_, sizeof(overflow_));
+				if (err != 0) {
+					LOG_ERR("Flash area write failed");
+				} else {
+					// Technically, we could have written more, but we don't care about the alignment bytes.
+					total_write_size += overflow_count_;
+				}
+			}
+		}
+	}
 
-	// TODO: read the Content-Range header and get the total length here (or in header callbacks)
+	// Count the read size to make sure it matches the content length header at the end.
 	total_read_size += rsp->body_frag_len;
+	content_length_ = rsp->content_length;
 }
 
 /* IOTEMBSYS: Implement the HTTP OTA task */
@@ -511,9 +548,23 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 		}
 
 		total_read_size = 0;
+		total_write_size = 0;
+
+		// Erase a flash area if previously written to.
+		int err = flash_area_open(FLASH_AREA_ID(image_1), (const struct flash_area **)&image_area);
+		if (err != 0) {
+			LOG_ERR("Flash area open failed");
+			continue;
+		}
+		err = flash_area_erase(image_area, 0, image_area->fa_size);
+		if (err != 0) {
+			LOG_ERR("Flash area erase failed");
+			continue;
+		}
 
 		if (connect_socket(AF_INET, kOtaReleaseServer, HTTP_PORT,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
 			LOG_ERR("Connect failed");
+			flash_area_close(image_area);
 			continue;
 		}
 
@@ -522,7 +573,6 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 		memset(&req, 0, sizeof(req));
 		memset(recv_buf_, 0, sizeof(recv_buf_));
 
-		//snprintf(range_header, sizeof(range_header), kRangeFormat, read_offset, read_offset + kReadSize - 1);
 		req.method = HTTP_GET;
 		req.url = OTA_BIN_PATH;
 		req.host = HOST;
@@ -540,7 +590,10 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 			LOG_INF("HTTP request sent %d bytes", ret);
 			k_msleep(2000);
 			LOG_INF("Received: %d", total_read_size);
-			k_msleep(10000);
+			if (content_length_ != total_read_size || total_write_size != total_read_size) {
+				LOG_ERR("Content length mismatch. Read: %d\tWrote: %d\tExpected: %d", total_read_size, total_write_size, content_length_);
+			}
+			k_msleep(2000);
 		} else {
 			LOG_ERR("HTTP request failed: %d", ret);
 			k_msleep(10000);
@@ -548,7 +601,8 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 
 		LOG_INF("Closing the socket");
 		close(sock);
-		LOG_INF("Request complete");
+		LOG_INF("Close image area");
+		flash_area_close(image_area);
 	}
 }
 #endif
