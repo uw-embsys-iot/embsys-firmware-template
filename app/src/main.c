@@ -537,6 +537,8 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 
 	k_event_init(&unblock_sender_);
 
+	LOG_INF("OTA Image!");
+
 	while (true) {
 		uint32_t  events;
 
