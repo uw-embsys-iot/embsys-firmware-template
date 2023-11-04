@@ -244,6 +244,25 @@ static void socket_close(struct modem_socket *sock)
 	modem_socket_put(&mdata.socket_config, sock->sock_fd);
 }
 
+/* Func: socket_close_async
+ * Desc: Same as socket_close, but used when called from closed URC
+ * because the OK response cannot be processed.
+ */
+static void socket_close_async(struct modem_socket *sock)
+{
+	char buf[sizeof("AT+QICLOSE=##")] = {0};
+	int  ret;
+
+	snprintk(buf, sizeof(buf), "AT+QICLOSE=%d", sock->id);
+
+	/* Tell the modem to close the socket, ignoring the response. */
+	(void)modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+			     NULL, 0U, buf,
+			     &mdata.sem_response, K_SECONDS(1));
+
+	modem_socket_put(&mdata.socket_config, sock->sock_fd);
+}
+
 /* Handler: OK */
 MODEM_CMD_DEFINE(on_cmd_ok)
 {
@@ -497,8 +516,11 @@ MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 	// }
 	
 	// TODO: This is a hack to allow the poll to happen.
-	if (modem_socket_next_packet_size(&mdata.socket_config, sock) <= 1) {
+	int packet_size = modem_socket_next_packet_size(&mdata.socket_config, sock);
+	if (packet_size <= 1) {
 		modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
+	} else {
+		LOG_INF("Existing packet size: %d", packet_size);
 	}
 
 	/* Data ready indication. */
@@ -523,7 +545,7 @@ MODEM_CMD_DEFINE(on_cmd_unsol_close)
 	LOG_INF("Socket Close Indication for socket: %d", sock_fd);
 
 	/* Tell the modem to close the socket. */
-	socket_close(sock);
+	socket_close_async(sock);
 	LOG_INF("Socket Closed: %d", sock_fd);
 	return 0;
 }
