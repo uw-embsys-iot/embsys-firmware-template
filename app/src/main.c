@@ -533,11 +533,8 @@ static void backend_http_request(void) {
 	req.payload_len = 37;
 #else
 	req.url = "/status_update";
-	req.payload = recv_buf_;
 	req.payload_len = http_proto_payload_gen(recv_buf_, sizeof(recv_buf_));
-
-	// When set to 0, this does chunked encoding
-	//req.payload_len = 2;
+	req.payload = req.payload_len ? recv_buf_ : NULL;
 #endif
 	
 #endif // IS_POST_REQ
@@ -590,6 +587,7 @@ static void backend_ota_http_request(void) {
 	req.url = "/ota";
 	req.payload = payload_buf;
 	req.payload_len = http_ota_proto_payload_get(payload_buf, sizeof(payload_buf));
+	req.payload = req.payload_len ? payload_buf : NULL;
 	req.response = http_ota_proto_response_cb;
 	req.recv_buf = recv_buf_;
 	req.recv_buf_len = sizeof(recv_buf_);

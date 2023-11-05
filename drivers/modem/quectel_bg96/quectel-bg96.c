@@ -250,17 +250,19 @@ static void socket_close(struct modem_socket *sock)
  */
 static void socket_close_async(struct modem_socket *sock)
 {
-	char buf[sizeof("AT+QICLOSE=##")] = {0};
-	int  ret;
+	//char buf[sizeof("AT+QICLOSE=##")] = {0};
+	//int  ret;
 
-	snprintk(buf, sizeof(buf), "AT+QICLOSE=%d", sock->id);
+	//snprintk(buf, sizeof(buf), "AT+QICLOSE=%d", sock->id);
+	
+	// First, put the socket so that it is no longer connected
+	// and no other commands to close it are sent.
+	modem_socket_put(&mdata.socket_config, sock->sock_fd);
 
 	/* Tell the modem to close the socket, ignoring the response. */
-	(void)modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
-			     NULL, 0U, buf,
-			     &mdata.sem_response, K_SECONDS(1));
-
-	modem_socket_put(&mdata.socket_config, sock->sock_fd);
+	//(void)modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+	//		     NULL, 0U, buf,
+	//		     &mdata.sem_response, K_NO_WAIT);
 }
 
 /* Handler: OK */
@@ -546,7 +548,7 @@ MODEM_CMD_DEFINE(on_cmd_unsol_close)
 
 	/* Tell the modem to close the socket. */
 	socket_close_async(sock);
-	LOG_INF("Socket Closed: %d", sock_fd);
+	LOG_INF("Socket closed via URC: %d", sock_fd);
 	return 0;
 }
 
