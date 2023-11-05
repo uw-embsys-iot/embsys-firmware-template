@@ -28,6 +28,8 @@ enum OTAState{
 
 message OTAUpdateRequest {
     OTAState state = 1;
+    // the current version that is running
+    string version = 2;
 }
 
 message OTAUpdateResponse {

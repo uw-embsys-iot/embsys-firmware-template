@@ -63,4 +63,21 @@ config MODEM_QUECTEL_BG96_INIT_PRIORITY
 	  Note that the priority needs to be lower than the net stack
 	  so that it can start before the networking sub-system.
 
+config MODEM_QUECTEL_BG96_DNS_SERVER1
+	string "BG96 DNS server 1"
+	help
+	  DNS server IP address 1. The address can be either IPv4 or IPv6
+	  address. An optional port number can be given.
+	  Following syntax is supported:
+	  192.0.2.1
+	  192.0.2.1:5353
+	  2001:db8::1
+	  [2001:db8::1]:5353
+	  It is not mandatory to use this Kconfig option at all.
+
+config MODEM_QUECTEL_BG96_DNS_SERVER2
+	string "BG96 DNS server 2"
+	help
+	  See help in "DNS server 1" option.
+
 endif

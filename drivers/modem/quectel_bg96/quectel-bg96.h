@@ -113,6 +113,7 @@ struct modem_data {
 	struct k_sem sem_response;
 	struct k_sem sem_tx_ready;
 	struct k_sem sem_sock_conn;
+	struct k_sem sem_dns;
 };
 
 /* Socket read callback data */
