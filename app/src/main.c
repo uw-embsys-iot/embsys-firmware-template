@@ -112,6 +112,9 @@ static uint8_t recv_buf_[MAX_RECV_BUF_LEN];
 // TODO(mskobov): this should not be static!
 static char ota_path_[128] = "/does_not_exist/zephyr.signed.bin";
 
+/* IOTEMBSYS: Consider provisioning a device ID. */
+static const char kDeviceId[] = "12345";
+
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
@@ -370,7 +373,8 @@ static void generic_http_request(void) {
 //
 
 // You will need to change this to match your host
-#define EC2_HOST "ec2-54-162-248-64.compute-1.amazonaws.com"
+// WARNING: This will change with each new EC2 instance!
+#define EC2_HOST "ec2-34-224-91-168.compute-1.amazonaws.com"
 #define BACKEND_PORT 8080
 #define BACKEND_HOST EC2_HOST ":8080"
 static struct addrinfo* backend_addr_;
@@ -397,6 +401,8 @@ static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, si
 
 	/* IOTEMBSYS: Fill out app stats. */
 	message.uptime_ticks = k_uptime_get();
+	strncpy(message.device_id, kDeviceId, sizeof(message.device_id));
+
 	// TODO(mskobov): Get RTC value
 	message.has_app_stats = true;
 	message.app_stats.ticks = app_stats.ticks;
@@ -539,10 +545,11 @@ static bool encode_ota_update_request(uint8_t *buffer, size_t buffer_size, size_
 
 	/* Create a stream that will write to our buffer. */
 	pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
-
+	
 	/* TODO: fill out the actual state. */
 	message.state = OTAState_OTA_STATE_NONE;
 	strncpy(message.version, APP_VERSION_STR, sizeof(message.version));
+	strncpy(message.device_id, kDeviceId, sizeof(message.device_id));
 
 	/* Now we are ready to encode the message! */
 	status = pb_encode(&stream, OTAUpdateRequest_fields, &message);
