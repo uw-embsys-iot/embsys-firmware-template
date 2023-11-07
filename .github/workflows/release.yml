@@ -29,15 +29,27 @@ jobs:
         working-directory: example-application
         run: |
           west build -b stm32l496_cell app
+          cp example-application/build/zephyr/zephyr.bin ${{ github.sha }}.bin
+      - name: List
+        working-directory: example-application
+        run: |
+          ls -a
+      - name: Build signed firmware
+        working-directory: example-application
+        run: |
+          west build -b stm32l496_cell app -- -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"example-application/conf/root-rsa-2048.pem\" -DEXTRA_CONF_FILE=mcumgr.conf
+          cp example-application/build/zephyr/zephyr.bin ${{ github.sha }}-signed.bin
+      # - name: Release
+      #   uses: ncipollo/release-action@v1.13.0
+      #   with:
+      #     artifacts: "example-application/build/zephyr/zephyr.bin"
       - name: Release
-        uses: ncipollo/release-action@v1.13.0
-        with:
-          artifacts: "example-application/build/zephyr/zephyr.bin"
-      - name: Release2
         uses: softprops/action-gh-release@v1
         with:
           files: |
             example-application/build/zephyr/zephyr.bin
+            ${{ github.sha }}.bin
+            ${{ github.sha }}-signed.bin
       # TODO(mskobov): Create release and upload release are deprecated; replace with other actions
       # - name: Create Release
       #   id: create_release
