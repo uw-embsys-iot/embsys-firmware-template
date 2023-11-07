@@ -864,11 +864,13 @@ void main(void)
 	}
 
 	// This code is commented out to aid you in development
-	// if you ever need to erase a flash area.
+	// if you ever need to erase a flash area. If you find yourself
+	// in a situation where the previously saved settings aren't loading
+	// then it's likely that the partition is corrupted and needs to be erased.
+
 	// Erase a flash area if previously written to.
 	// const struct flash_area *my_area;
 	// int err = flash_area_open(STORAGE_PARTITION_ID, &my_area);
-
 	// if (err != 0) {
 	// 	printk("Flash area open failed");
 	// } else {
@@ -891,7 +893,7 @@ void main(void)
 	boot_count++;
     settings_save_one("provisioning/boot_count", &boot_count, sizeof(boot_count));
 
-    printk("boot_count: %d\n", boot_count);
+    LOG_INF("boot_count: %d\n", boot_count);
 
 	/* IOTEMBSYS: Configure joystick GPIOs. */
 	init_joystick_gpio(&sw0, &button_cb_data_0);
