@@ -77,17 +77,17 @@
 			reg = <0x00000000 0x00010000>;
 			read-only;
 		};
-		slot0_partition: partition@20000 {
+		slot0_partition: partition@10000 {
 			label = "image-0";
-			reg = <0x00010000 0x00040000>;
+			reg = <0x00010000 0x00070000>;
 		};
-		slot1_partition: partition@50000 {
+		slot1_partition: partition@80000 {
 			label = "image-1";
-			reg = <0x00060000 0x00040000>;
+			reg = <0x00080000 0x00070000>;
 		};
 		storage_partition: partition@90000 {
 			label = "storage";
-			reg = <0x00090000 0x1000>;
+			reg = <0x000F0000 0x1000>;
 		};
 	};
 };

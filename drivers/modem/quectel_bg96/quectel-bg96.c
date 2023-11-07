@@ -17,6 +17,13 @@ static struct modem_data       mdata;
 static struct modem_context    mctx;
 static const struct socket_op_vtable offload_socket_fd_op_vtable;
 
+#if defined(CONFIG_DNS_RESOLVER)
+static struct zsock_addrinfo result;
+static struct sockaddr result_addr;
+static char result_canonname[DNS_MAX_NAME_SIZE + 1];
+#define MDM_DNS_TIMEOUT			K_SECONDS(60)
+#endif
+
 static K_KERNEL_STACK_DEFINE(modem_rx_stack, CONFIG_MODEM_QUECTEL_BG96_RX_STACK_SIZE);
 static K_KERNEL_STACK_DEFINE(modem_workq_stack, CONFIG_MODEM_QUECTEL_BG96_RX_WORKQ_STACK_SIZE);
 NET_BUF_POOL_DEFINE(mdm_recv_pool, MDM_RECV_MAX_BUF, MDM_RECV_BUF_SIZE, 0, NULL);
@@ -148,10 +155,8 @@ static int on_cmd_sockread_common(int socket_fd,
 	/* check to make sure we have all of the data. */
 	int frag_len = net_buf_frags_len(data->rx_buf);
 	if (frag_len < (socket_data_length + bytes_to_skip)) {
-		// TODO(mskobov): This might break raw TCP sockets
 		LOG_DBG("Not enough data. Want: %d + %d, have %d", socket_data_length, bytes_to_skip, frag_len);
 		return -EAGAIN;
-		//LOG_DBG("Not enough data -- continuing!");
 	}
 
 	/* Skip "len" and CRLF */
@@ -199,6 +204,25 @@ exit:
 	return ret;
 }
 
+// Added by instructors for checking received data size.
+static int on_cmd_handle_check_data(int socket_fd,
+				  struct modem_cmd_handler_data *data,
+				  int unread)
+{
+	struct modem_socket	 *sock = NULL;
+
+	sock = modem_socket_from_fd(&mdata.socket_config, socket_fd);
+	if (!sock) {
+		LOG_ERR("Socket not found! (%d)", socket_fd);
+		return -EINVAL;
+	}
+
+	if (unread) {
+		(void)modem_socket_packet_size_update(&mdata.socket_config, sock, unread);
+	}
+	return 0;
+}
+
 /* Func: socket_close
  * Desc: Function to close the given socket descriptor.
  */
@@ -217,6 +241,17 @@ static void socket_close(struct modem_socket *sock)
 		LOG_ERR("%s ret:%d", buf, ret);
 	}
 
+	modem_socket_put(&mdata.socket_config, sock->sock_fd);
+}
+
+/* Func: socket_close_async
+ * Desc: Same as socket_close, but used when called from closed URC
+ * because the OK response cannot be processed.
+ */
+static void socket_close_async(struct modem_socket *sock)
+{
+	// Put the socket so that it is no longer connected
+	// and no other commands to close it are sent.
 	modem_socket_put(&mdata.socket_config, sock->sock_fd);
 }
 
@@ -370,6 +405,32 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_iccid)
 }
 #endif /* #if defined(CONFIG_MODEM_SIM_NUMBERS) */
 
+// TODO: move this enum elsewhere
+typedef enum {
+	BG9X_CEREG_STATUS_NOT_REGISTERED = 0,
+	BG9X_CEREG_STATUS_REGISTERED_HOME,
+	BG9X_CEREG_STATUS_SEARCHING,
+	BG9X_CEREG_STATUS_DENIED,
+	BG9X_CEREG_STATUS_UNKNOWN,
+	BG9X_CEREG_STATUS_REGISTERED_ROAMING,
+} registration_status_e;
+
+// TODO: move to modem data struct
+static bool registered_;
+
+// Note: this was added by course instructors, and is does not decode
+// all CEREG payloads.
+MODEM_CMD_DEFINE(on_cmd_registration_status)
+{
+	int status = ATOI(argv[1], 0, "cereg");
+
+	LOG_INF("AT+CEREG: %d", status);
+
+	registered_ = (status == BG9X_CEREG_STATUS_REGISTERED_HOME || status == BG9X_CEREG_STATUS_REGISTERED_ROAMING);
+	k_sem_give(&mdata.sem_sock_conn);
+	return 0;
+}
+
 /* Handler: TX Ready */
 MODEM_CMD_DIRECT_DEFINE(on_cmd_tx_ready)
 {
@@ -402,17 +463,22 @@ MODEM_CMD_DEFINE(on_cmd_sock_readdata)
 	return on_cmd_sockread_common(mdata.sock_fd, data, len);
 }
 
-// TODO(mskobov): This should be more like the ublox driver.
-// This function should be like MODEM_CMD_DEFINE(on_cmd_socknotifydata)
-// in that driver, and call modem_socket_packet_size_update. Then offload_recvfrom
-// should first call modem_socket_next_packet_size and then wait until data
-// is available.
+// TODO: added by instructors to update socket data length
+/* Handler: Check for remaining data */
+/* +QIRD: <total_receive_length>,<have_read_length>,<unread_length> */
+MODEM_CMD_DEFINE(on_cmd_sock_checkdata)
+{
+	int unread = ATOI(argv[2], 0, "unread_length");
+	//LOG_INF("Unread: %d", unread);
+	modem_cmd_handler_set_error(data, 0);
+	return on_cmd_handle_check_data(mdata.sock_fd, data, unread);
+}
 
 /* Handler: Data receive indication. */
 MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 {
-	struct modem_socket *sock;
-	int		     sock_fd;
+	struct 	modem_socket *sock;
+	int		sock_fd;
 
 	sock_fd = ATOI(argv[0], 0, "sock_fd");
 
@@ -421,12 +487,17 @@ MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 	if (!sock) {
 		return 0;
 	}
-
-	/* Modem does not tell packet size. Set dummy for receive. */
-	modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
+	
+	// TODO: This is a hack to allow the poll to happen.
+	int packet_size = modem_socket_next_packet_size(&mdata.socket_config, sock);
+	if (packet_size <= 1) {
+		modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
+	} else {
+		LOG_INF("Existing packet size: %d", packet_size);
+	}
 
 	/* Data ready indication. */
-	LOG_INF("Data Receive Indication for socket: %d", sock_fd);
+	LOG_DBG("Data Receive Indication for socket: %d", sock_fd);
 	modem_socket_data_ready(&mdata.socket_config, sock);
 
 	return 0;
@@ -447,8 +518,8 @@ MODEM_CMD_DEFINE(on_cmd_unsol_close)
 	LOG_INF("Socket Close Indication for socket: %d", sock_fd);
 
 	/* Tell the modem to close the socket. */
-	socket_close(sock);
-	LOG_INF("Socket Closed: %d", sock_fd);
+	socket_close_async(sock);
+	LOG_INF("Socket closed via URC: %d", sock_fd);
 	return 0;
 }
 
@@ -458,6 +529,29 @@ MODEM_CMD_DEFINE(on_cmd_unsol_rdy)
 	k_sem_give(&mdata.sem_response);
 	return 0;
 }
+
+#if defined(CONFIG_DNS_RESOLVER)
+/* Handler: +QIURC: "dnsgip",<hostIP> */
+// TODO(mskobov): Handle error DNS lookups!
+MODEM_CMD_DEFINE(on_cmd_dns)
+{
+	if (argv[0][0] != '\"') {
+		// Just drop the response that doesn't have the IP.
+		return 0;
+	}
+
+	/* chop off end quote */
+	argv[0][strlen(argv[0]) - 1] = '\0';
+
+	/* FIXME: Hard-code DNS on SARA-R4 to return IPv4 */
+	result_addr.sa_family = AF_INET;
+	/* skip beginning quote when parsing */
+	(void)net_addr_pton(result.ai_family, &argv[0][1],
+			    &((struct sockaddr_in *)&result_addr)->sin_addr);
+	k_sem_give(&mdata.sem_dns);
+	return 0;
+}
+#endif
 
 /* Func: send_socket_data
  * Desc: This function will send "binary" data over the socket object.
@@ -607,6 +701,17 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 	char   sendbuf[sizeof("AT+QIRD=##,####")] = {0};
 	int    ret;
 	struct socket_read_data sock_data;
+
+	/* Modem does not tell packet size. Set dummy for receive. */
+	struct modem_cmd check_cmd[] = { MODEM_CMD("+QIRD: ", on_cmd_sock_checkdata, 3U, ",") };
+	snprintk(sendbuf, sizeof(sendbuf), "AT+QIRD=%d,0", sock->id);
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+				check_cmd, 1, sendbuf, &mdata.sem_response,
+				MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("Error reading from socket");
+		modem_socket_packet_size_update(&mdata.socket_config, sock, 0);
+	}
 
 	/* Modem command to read the data. */
 	struct modem_cmd data_cmd[] = { MODEM_CMD("+QIRD: ", on_cmd_sock_readdata, 0U, "") };
@@ -883,6 +988,92 @@ static ssize_t offload_sendmsg(void *obj, const struct msghdr *msg, int flags)
 	return (ssize_t) sent;
 }
 
+#if defined(CONFIG_DNS_RESOLVER)
+/* TODO: This is a bare-bones implementation of DNS handling
+ * We ignore most of the hints like ai_family, ai_protocol and ai_socktype.
+ * Later, we can add additional handling if it makes sense.
+ */
+static int offload_getaddrinfo(const char *node, const char *service,
+			       const struct zsock_addrinfo *hints,
+			       struct zsock_addrinfo **res)
+{
+	static const struct modem_cmd cmd =
+		MODEM_CMD("+QIURC: \"dnsgip\",", on_cmd_dns, 1U, "");
+	uint32_t port = 0U;
+	int ret;
+	/* DNS command + 128 bytes for domain name parameter */
+	char sendbuf[sizeof("AT+QIDNSGIP=1,''\r") + 128];
+
+	/* init result */
+	(void)memset(&result, 0, sizeof(result));
+	(void)memset(&result_addr, 0, sizeof(result_addr));
+	/* FIXME: Hard-code DNS to return only IPv4 */
+	result.ai_family = AF_INET;
+	result_addr.sa_family = AF_INET;
+	result.ai_addr = &result_addr;
+	result.ai_addrlen = sizeof(result_addr);
+	result.ai_canonname = result_canonname;
+	result_canonname[0] = '\0';
+
+	if (service) {
+		port = ATOI(service, 0U, "port");
+		if (port < 1 || port > USHRT_MAX) {
+			return DNS_EAI_SERVICE;
+		}
+	}
+
+	if (port > 0U) {
+		/* FIXME: DNS is hard-coded to return only IPv4 */
+		if (result.ai_family == AF_INET) {
+			net_sin(&result_addr)->sin_port = htons(port);
+		}
+	}
+
+	/* check to see if node is an IP address */
+	if (net_addr_pton(result.ai_family, node,
+			  &((struct sockaddr_in *)&result_addr)->sin_addr)
+	    == 0) {
+		*res = &result;
+		return 0;
+	}
+
+	/* user flagged node as numeric host, but we failed net_addr_pton */
+	if (hints && hints->ai_flags & AI_NUMERICHOST) {
+		return DNS_EAI_NONAME;
+	}
+
+	k_sem_reset(&mdata.sem_dns);
+
+
+	snprintk(sendbuf, sizeof(sendbuf), "AT+QIDNSGIP=1,\"%s\"", node);
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+			     &cmd, 1U, sendbuf, &mdata.sem_dns,
+			     MDM_DNS_TIMEOUT);
+	if (ret < 0) {
+		return ret;
+	}
+
+	LOG_DBG("DNS RESULT: %s",
+		net_addr_ntop(result.ai_family,
+					 &net_sin(&result_addr)->sin_addr,
+					 sendbuf, NET_IPV4_ADDR_LEN));
+
+	*res = (struct zsock_addrinfo *)&result;
+	return 0;
+}
+
+static void offload_freeaddrinfo(struct zsock_addrinfo *res)
+{
+	/* using static result from offload_getaddrinfo() -- no need to free */
+	res = NULL;
+}
+
+static const struct socket_dns_offload offload_dns_ops = {
+	.getaddrinfo = offload_getaddrinfo,
+	.freeaddrinfo = offload_freeaddrinfo,
+};
+#endif
+
 /* Func: modem_rx
  * Desc: Thread to process all messages received from the Modem.
  */
@@ -919,6 +1110,24 @@ static void modem_rssi_query_work(struct k_work *work)
 		k_work_reschedule_for_queue(&modem_workq,
 					    &mdata.rssi_query_work,
 					    K_SECONDS(RSSI_TIMEOUT_SECS));
+	}
+}
+
+/* Func: modem_registration_query_work
+ * Desc: Routine to get Modem registration status.
+ */
+static void modem_registration_query_work()
+{
+	struct modem_cmd cmd  = MODEM_CMD("+CEREG: ", on_cmd_registration_status, 2U, ",");
+	static char *send_cmd = "AT+CEREG?";
+	int ret;
+
+	/* query modem registration status */
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+			     &cmd, 1U, send_cmd, &mdata.sem_response,
+			     MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("AT+CEREG? ret:%d", ret);
 	}
 }
 
@@ -968,6 +1177,7 @@ static const struct modem_cmd response_cmds[] = {
 static const struct modem_cmd unsol_cmds[] = {
 	MODEM_CMD("+QIURC: \"recv\",",	   on_cmd_unsol_recv,  1U, ""),
 	MODEM_CMD("+QIURC: \"closed\",",   on_cmd_unsol_close, 1U, ""),
+	//MODEM_CMD("+QIRD: ",  on_cmd_sock_checkdata, 3U, ","),
 	MODEM_CMD("RDY", on_cmd_unsol_rdy, 0U, ""),
 };
 
@@ -1006,8 +1216,8 @@ static const struct setup_cmd setup_cmds[] = {
     // Set up the RAT search sequence (CAT-M1, NB-IoT, GSM)
     SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanseq\",00,1"),
 
-    // Set allowable RATs
-    SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanmode\",0,1"),
+    // Set allowable RATs; 3 = LTE-only, 1 = take effect immediately
+    SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanmode\",3,1"),
 
     // Set the band configuration to any
     //SETUP_CMD_NOHANDLE("AT+QCFG=\"band\",0xf,0x400a0e189f,0xa0e189f,1"),
@@ -1068,6 +1278,30 @@ static int modem_pdp_context_activate(void)
 	if (ret == -EIO && retry_count >= MDM_PDP_ACT_RETRY_COUNT) {
 		LOG_ERR("Retried activating/deactivating too many times.");
 	}
+
+#ifdef CONFIG_MODEM_QUECTEL_BG96_DNS_SERVER1
+	if (ret == 0) {
+		LOG_INF("Context activated; configuring DNS servers");
+		char buf[sizeof("AT+QIDNSCFG=1,\"XXX.XXX.XXX.XXX\",\"XXX.XXX.XXX.XXX\"")] = {0};
+		int  ret;
+
+#ifdef CONFIG_MODEM_QUECTEL_BG96_DNS_SERVER2
+		snprintk(buf, sizeof(buf), "AT+QIDNSCFG=1,\"%s\",\"%s\"", CONFIG_MODEM_QUECTEL_BG96_DNS_SERVER1, CONFIG_MODEM_QUECTEL_BG96_DNS_SERVER2);
+#else
+		snprintk(buf, sizeof(buf), "AT+QIDNSCFG=1,\"%s\"", CONFIG_MODEM_QUECTEL_BG96_DNS_SERVER1);
+#endif
+
+		/* Tell the modem to close the socket. */
+		ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
+					NULL, 0U, buf,
+					&mdata.sem_response, MDM_CMD_TIMEOUT);
+		if (ret < 0) {
+			LOG_ERR("%s ret:%d", buf, ret);
+			// Ignore DNS server config failure
+			ret = 0;
+		}
+	}
+#endif
 
 	return ret;
 }
@@ -1149,10 +1383,18 @@ restart_rssi:
 		goto restart_rssi;
 	}
 
+restart_registration:
+	// Query modem registration status on network
+	modem_registration_query_work();
+
+	if (!registered_) {
+		LOG_INF("Not registered on network");
+		k_sleep(MDM_WAIT_FOR_RSSI_DELAY);
+		goto restart_registration;
+	}
+
 	/* Network is ready - Start RSSI work in the background. */
 	LOG_INF("Network is ready.");
-	k_work_reschedule_for_queue(&modem_workq, &mdata.rssi_query_work,
-				    K_SECONDS(RSSI_TIMEOUT_SECS));
 
 	/* Once the network is ready, we try to activate the PDP context. */
 	ret = modem_pdp_context_activate();
@@ -1196,6 +1438,10 @@ static void modem_net_iface_init(struct net_if *iface)
 			     sizeof(data->mac_addr),
 			     NET_LINK_ETHERNET);
 	data->net_iface = iface;
+
+#if defined(CONFIG_DNS_RESOLVER)
+	socket_offload_dns_register(&offload_dns_ops);
+#endif
 
 	net_if_socket_offload_set(iface, offload_socket);
 }
@@ -1244,6 +1490,7 @@ static int modem_init(const struct device *dev)
 	k_sem_init(&mdata.sem_response,	 0, 1);
 	k_sem_init(&mdata.sem_tx_ready,	 0, 1);
 	k_sem_init(&mdata.sem_sock_conn, 0, 1);
+	k_sem_init(&mdata.sem_dns, 0, 1);
 	k_work_queue_start(&modem_workq, modem_workq_stack,
 			   K_KERNEL_STACK_SIZEOF(modem_workq_stack),
 			   K_PRIO_COOP(7), NULL);
