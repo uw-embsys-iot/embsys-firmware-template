@@ -493,7 +493,7 @@ MODEM_CMD_DEFINE(on_cmd_unsol_recv)
 	if (packet_size <= 1) {
 		modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
 	} else {
-		LOG_INF("Existing packet size: %d", packet_size);
+		LOG_DBG("Existing packet size: %d", packet_size);
 	}
 
 	/* Data ready indication. */
