@@ -25,29 +25,17 @@ jobs:
         run: |
           west init -l .
           west update
-      - name: Build firmware
-        working-directory: example-application
-        run: |
-          west build -b stm32l496_cell app
-      - name: List
-        working-directory: example-application
-        run: |
-          ls -a
-      - name: Copy firmware
-        run: |
-          cp example-application/build/zephyr/zephyr.bin ${{ github.sha }}.bin
       # TODO(mskobov): Use imgtool to sign the existing binary instead
       # TODO(mskobov): Automatically push to S3
       - name: Build signed firmware
         working-directory: example-application
         run: |
-          west build -b stm32l496_cell app -- -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"example-application/conf/root-rsa-2048.pem\" -DEXTRA_CONF_FILE=mcumgr.conf
+          west build -b stm32l496_cell app -p -- -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"example-application/conf/root-rsa-2048.pem\" -DEXTRA_CONF_FILE=mcumgr.conf
       - name: Copy signed firmware
         run: |
-          cp example-application/build/zephyr/zephyr.bin ${{ github.sha }}-signed.bin
+          cp example-application/build/zephyr/zephyr.signed.bin ${{ github.sha }}.signed.bin
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ${{ github.sha }}.bin
             ${{ github.sha }}-signed.bin
