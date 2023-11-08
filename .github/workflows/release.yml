@@ -36,6 +36,8 @@ jobs:
       - name: Copy firmware
         run: |
           cp example-application/build/zephyr/zephyr.bin ${{ github.sha }}.bin
+      # TODO(mskobov): Use imgtool to sign the existing binary instead
+      # TODO(mskobov): Automatically push to S3
       - name: Build signed firmware
         working-directory: example-application
         run: |
@@ -43,34 +45,9 @@ jobs:
       - name: Copy signed firmware
         run: |
           cp example-application/build/zephyr/zephyr.bin ${{ github.sha }}-signed.bin
-      # - name: Release
-      #   uses: ncipollo/release-action@v1.13.0
-      #   with:
-      #     artifacts: "example-application/build/zephyr/zephyr.bin"
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             ${{ github.sha }}.bin
             ${{ github.sha }}-signed.bin
-      # TODO(mskobov): Create release and upload release are deprecated; replace with other actions
-      # - name: Create Release
-      #   id: create_release
-      #   uses: actions/create-release@v1
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   with:
-      #     tag_name: ${{ github.ref }}
-      #     release_name: Release ${{ github.ref }}
-      #     draft: false
-      #     prerelease: false
-      # - name: Upload Release Asset
-      #   id: upload-release-asset 
-      #   uses: actions/upload-release-asset@v1
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   with:
-      #     upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
-      #     asset_path: ./example-application/build/zephyr/zephyr.bin
-      #     asset_name: ${{ github.ref }}.bin
-      #     asset_content_type: application/bin
