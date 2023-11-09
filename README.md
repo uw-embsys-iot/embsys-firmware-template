@@ -34,10 +34,12 @@ west update
 ```shell
 cd embsys-workspace
 
-# initialize embsys-workspace for the embsys-firmware (main branch)
-west init -m https://github.com/kail/embsys-firmware --mr main embsys-workspace
-# update Zephyr modules
-cd embsys-workspace
+# Clone the repo into a new assignment directory
+git clone https://github.com/kail/embsys-firmware assignment_n
+# Note: do this manually
+# update the embsys-workspace/.west/config file so the manifest path points to the new assignment
+
+# Update the workspace, just to be safe
 west update
 ```
 
