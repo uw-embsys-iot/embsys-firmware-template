@@ -24,6 +24,7 @@ command:
 
 ```shell
 # install the west tool
+# https://docs.zephyrproject.org/latest/develop/west/install.html
 
 # Linux
 pip3 install --user -U west
