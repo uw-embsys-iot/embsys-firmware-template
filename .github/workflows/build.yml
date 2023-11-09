@@ -12,22 +12,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          path: example-application
+          path: embsys-firmware
 
       - name: Initialize
-        working-directory: example-application
+        working-directory: embsys-firmware
         run: |
           west init -l .
           west update
 
       - name: Build firmware
-        working-directory: example-application
+        working-directory: embsys-firmware
         run: |
           west build -b stm32l496_cell app
 
-      # Disable running tests for the time being
+      # Add tests here
       # - name: Twister Tests
-      #   working-directory: example-application
+      #   working-directory: embsys-firmware
       #   run: |
       #     ../zephyr/scripts/twister -G --board-root boards/ --testsuite-root ./tests/
 
@@ -35,4 +35,4 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: firmware
-          path: example-application/build/zephyr/zephyr.*
+          path: embsys-firmware/build/zephyr/zephyr.*
