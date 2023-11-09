@@ -23,6 +23,14 @@ the ``embsys-firmware`` (i.e. each assignment and project) and all Zephyr module
 command:
 
 ```shell
+# install the west tool
+
+# Linux
+pip3 install --user -U west
+
+# Windows/macOS
+pip3 install -U west
+
 # initialize embsys-workspace for the embsys-firmware (main branch)
 west init -m https://github.com/kail/embsys-firmware --mr main embsys-workspace
 # update Zephyr modules
