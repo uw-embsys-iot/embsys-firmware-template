@@ -16,28 +16,18 @@ jobs:
     env:
       CMAKE_PREFIX_PATH: /opt/toolchains
     steps:
-       # IOTEMBSYS10: Add a step to checkout the repo
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          path: embsys-firmware
-       # IOTEMBSYS10: Add a step to initialize the west workspace
-      - name: Initialize
-        working-directory: embsys-firmware
+      # IOTEMBSYS10: Remove this
+      - name: Build firmware
         run: |
-          west init -l .
-          west update
+          echo "Test" > ${{ github.sha }}.signed.bin
+      # IOTEMBSYS10: Add a step to checkout the repo
+
+      # IOTEMBSYS10: Add a step to initialize the west workspace
+
       # IOTEMBSYS10: Add a step to BUILD AND SIGN the application for use with the bootloader!
-      # TODO(mskobov): Use imgtool to sign the existing binary instead
-      # TODO(mskobov): Automatically push to S3
-      - name: Build signed firmware
-        working-directory: embsys-firmware
-        run: |
-          west build -b stm32l496_cell app -p -- -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"embsys-firmware/conf/root-rsa-2048.pem\" -DEXTRA_CONF_FILE=mcumgr.conf
+
       # IOTEMBSYS10: Copy the output so that the name of the file is <git SHA>.signed.bin
-      - name: Copy signed firmware
-        run: |
-          cp embsys-firmware/build/zephyr/zephyr.signed.bin ${{ github.sha }}.signed.bin
+
       # IOTEMBSYS10: This is given to you
       - name: Release
         uses: softprops/action-gh-release@v1
