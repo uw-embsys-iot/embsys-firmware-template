@@ -20,7 +20,7 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 #include <pb_decode.h>
 #include "api/api.pb.h"
 
-/* IOTEMBSYS: Add header for stats */
+/* IOTEMBSYS11: Add include for stats, if using */
 #include <zephyr/stats/stats.h>
 
 #include <stdlib.h>
@@ -31,7 +31,7 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 #define str(s) #s
 #define xstr(s) str(s)
 
-/* IOTEMBSYS: Stats sections and entries declarations. */
+/* IOTEMBSYS11: Stats sections and entries declarations. */
 /* Define an example stats group; approximates seconds since boot. */
 STATS_SECT_START(app_stats)
 STATS_SECT_ENTRY(ticks)
@@ -399,7 +399,7 @@ static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, si
 	/* Fill in the reboot count */
 	message.boot_count = boot_count;
 
-	/* IOTEMBSYS: Fill out app stats. */
+	/* IOTEMBSYS11: Fill out app stats. */
 	message.uptime_ticks = k_uptime_get();
 	strncpy(message.device_id, kDeviceId, sizeof(message.device_id));
 
@@ -889,7 +889,7 @@ void main(void)
     settings_register(&my_conf);
     settings_load();
 
-	/* IOTEMBSYS: Initialize stats subsystem. */
+	/* IOTEMBSYS11: Initialize stats subsystem. */
 	ret = STATS_INIT_AND_REG(app_stats, STATS_SIZE_32,
 				    "app_stats");
 	if (ret < 0) {

@@ -1,6 +1,7 @@
 // To keep things simple, the entire API will be in a single file.
 syntax = "proto3";
 
+// IOTEMBSYS11: Add application stats
 message AppStats {
     int32 ticks = 1;
     int32 button_press_count = 2;
