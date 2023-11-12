@@ -16,19 +16,10 @@ jobs:
     env:
       CMAKE_PREFIX_PATH: /opt/toolchains
     steps:
-      # IOTEMBSYS10: Remove this
       - name: Build firmware
         run: |
           echo "Test" > ${{ github.sha }}.signed.bin
-      # IOTEMBSYS10: Add a step to checkout the repo
 
-      # IOTEMBSYS10: Add a step to initialize the west workspace
-
-      # IOTEMBSYS10: Add a step to BUILD AND SIGN the application for use with the bootloader!
-
-      # IOTEMBSYS10: Copy the output so that the name of the file is <git SHA>.signed.bin
-
-      # IOTEMBSYS10: This is given to you
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
