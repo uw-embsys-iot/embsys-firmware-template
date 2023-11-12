@@ -533,6 +533,7 @@ static bool encode_ota_update_request(uint8_t *buffer, size_t buffer_size, size_
 	return status;
 }
 
+/* IOTEMBSYS9: Implement decoding of the server OTA response */
 static bool decode_ota_update_response(uint8_t *buffer, size_t message_length)
 {
 	bool status = false;
@@ -562,7 +563,7 @@ static bool decode_ota_update_response(uint8_t *buffer, size_t message_length)
 	return status;
 }
 
-/* IOTEMBSYS: Implement the HTTP client functionality */
+/* IOTEMBSYS9: Implement encoding of the server OTA request */
 static int http_ota_proto_payload_get(uint8_t* buffer, size_t buf_size) {
 	size_t message_length;
 
@@ -576,6 +577,7 @@ static int http_ota_proto_payload_get(uint8_t* buffer, size_t buf_size) {
 	return (int)message_length;
 }
 
+/* IOTEMBSYS9: Implement the server OTA response callback. */
 static void http_ota_proto_response_cb(struct http_response *rsp,
 			enum http_final_call final_data,
 			void *user_data)
@@ -593,6 +595,14 @@ static void http_ota_proto_response_cb(struct http_response *rsp,
 	LOG_INF("Response status %s", rsp->http_status);
 }
 
+/* 
+ * IOTEMBSYS9: Implement the server OTA request functionality. This should
+ * open a socket, encode the OTA request, send that request to the EC2 instance
+ * and get back a response. The response should contain the image path, or some
+ * indication (like a bool) that the OTA is not needed. When an OTA is needed,
+ * the URL or path should be used for making the request in `http_ota_request`.
+ * Look at `backend_http_request` if you need a reminder of how to do this.
+ */
 static void backend_ota_http_request(void) {
 	int sock;
 	const int32_t timeout = 5 * MSEC_PER_SEC;
@@ -646,7 +656,9 @@ static void backend_ota_http_request(void) {
 //
 // OTA Download Section
 //
+/* IOTEMBSYS9: Implement the OTA HTTP download. */
 #define OTA_HTTP_PORT 80
+/* IOTEMBSYS9: Your host is probably different. */
 #define OTA_HOST "iotemb-firmware-releases.s3.amazonaws.com"
 static int total_read_size;
 static int total_write_size;
@@ -654,7 +666,10 @@ static int content_length_;
 static struct flash_area *image_area;
 static struct addrinfo* ota_addr_;
 
-/* IOTEMBSYS: Implement the OTA HTTP download. */
+/* 
+ * IOTEMBSYS9: This function is given to you and should be used as the payload callback.
+ * There are a few cases it doesn't handle correctly, but you are unlikely to run into them.
+ */
 void http_ota_response_cb(struct http_response *rsp,
 			enum http_final_call final_data,
 			void *user_data)
@@ -718,7 +733,7 @@ void http_ota_response_cb(struct http_response *rsp,
 	content_length_ = rsp->content_length;
 }
 
-/* IOTEMBSYS: Implement the HTTP OTA task */
+/* IOTEMBSYS9: Implement the HTTP OTA request. This is where the actual download happens! */
 static void http_ota_request() {
 	int sock;
 	const int32_t timeout = 120 * MSEC_PER_SEC;
@@ -728,17 +743,21 @@ static void http_ota_request() {
 	total_read_size = 0;
 	total_write_size = 0;
 
+	/* IOTEMBSYS9: Open the slot1 flash area as `image_area` (declared for you) */
 	// Erase a flash area if previously written to.
 	int err = flash_area_open(SLOT1_PARTITION_ID, (const struct flash_area **)&image_area);
 	if (err != 0) {
 		LOG_ERR("Flash area open failed");
 		return;
 	}
+	/* IOTEMBSYS9: Erase the slot1 flash area */
 	err = flash_area_erase(image_area, 0, image_area->fa_size);
 	if (err != 0) {
 		LOG_ERR("Flash area erase failed");
 		return;
 	}
+
+	/* IOTEMBSYS9: Get the IP address for the host, if using DNS, and open the socket. */
 
 	// Get the IP address of the domain
 	if (get_addr_if_needed(&ota_addr_, OTA_HOST, xstr(OTA_HTTP_PORT)) != 0) {
@@ -757,6 +776,9 @@ static void http_ota_request() {
 		return;
 	}
 
+	/* 
+	 * IOTEMBSYS9: Create and run the HTTP request; ensure that response is set to `http_ota_response_cb`
+	 */
 	struct http_request req;
 
 	memset(&req, 0, sizeof(req));
@@ -772,6 +794,11 @@ static void http_ota_request() {
 	req.recv_buf = recv_buf_;
 	req.recv_buf_len = sizeof(recv_buf_);
 
+	/* 
+	 * IOTEMBSYS9: Send the HTTP request and ensure that the image is downloaded.
+	 * If successful, confirm that content_length_ == total_read_size and 
+	 * total_write_size == total_read_size
+	 */
 	// This request is synchronous and blocks the thread.
 	int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
 	if (ret > 0) {
@@ -786,6 +813,7 @@ static void http_ota_request() {
 		k_msleep(1000);
 	}
 
+	/* IOTEMBSYS9: Close the socket and close the image area. */
 	LOG_INF("Closing the socket");
 	close(sock);
 	LOG_INF("Close image area");
