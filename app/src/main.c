@@ -500,100 +500,13 @@ static void backend_http_request(void) {
 	close(sock);
 }
 
-/* IOTEMBSYS: Create a HTTP request and response with protobuf. */
-static bool encode_ota_update_request(uint8_t *buffer, size_t buffer_size, size_t *message_length)
-{
-	bool status;
-
-	/* Allocate space on the stack to store the message data.
-	 *
-	 * Nanopb generates simple struct definitions for all the messages.
-	 * - check out the contents of api.pb.h!
-	 * It is a good idea to always initialize your structures
-	 * so that you do not have garbage data from RAM in there.
-	 */
-	OTAUpdateRequest message = OTAUpdateRequest_init_zero;
-
-	/* Create a stream that will write to our buffer. */
-	pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
-	
-	/* TODO: fill out the actual state. */
-	message.state = OTAState_OTA_STATE_NONE;
-	strncpy(message.version, APP_VERSION_STR, sizeof(message.version));
-	strncpy(message.device_id, kDeviceId, sizeof(message.device_id));
-
-	/* Now we are ready to encode the message! */
-	status = pb_encode(&stream, OTAUpdateRequest_fields, &message);
-	*message_length = stream.bytes_written;
-
-	if (!status) {
-		printk("Encoding failed: %s\n", PB_GET_ERROR(&stream));
-	}
-
-	return status;
-}
+/* IOTEMBSYS9: Create a HTTP request and response with protobuf. */
 
 /* IOTEMBSYS9: Implement decoding of the server OTA response */
-static bool decode_ota_update_response(uint8_t *buffer, size_t message_length)
-{
-	bool status = false;
-	if (message_length == 0) {
-		LOG_WRN("Message length is 0");
-		return status;
-	}
-
-	/* Allocate space for the decoded message. */
-	OTAUpdateResponse message = OTAUpdateResponse_init_zero;
-
-	/* Create a stream that reads from the buffer. */
-	pb_istream_t stream = pb_istream_from_buffer(buffer, message_length);
-
-	/* Now we are ready to decode the message. */
-	status = pb_decode(&stream, OTAUpdateResponse_fields, &message);
-
-	/* Check for errors... */
-	if (status) {
-		/* Print the data contained in the message. */
-		printk("OTA path: %s\n", message.path);
-		strncpy(ota_path_, message.path, sizeof(ota_path_));
-	} else {
-		printk("Decoding failed: %s\n", PB_GET_ERROR(&stream));
-	}
-
-	return status;
-}
 
 /* IOTEMBSYS9: Implement encoding of the server OTA request */
-static int http_ota_proto_payload_get(uint8_t* buffer, size_t buf_size) {
-	size_t message_length;
-
-	/* Encode our message */
-	if (!encode_ota_update_request(buffer, buf_size, &message_length)) {
-		LOG_ERR("Encoding request failed");
-		return 0;
-	} else {
-		LOG_INF("Sending proto to server. Length: %d", (int)message_length);
-	}
-	return (int)message_length;
-}
 
 /* IOTEMBSYS9: Implement the server OTA response callback. */
-static void http_ota_proto_response_cb(struct http_response *rsp,
-			enum http_final_call final_data,
-			void *user_data)
-{
-	if (final_data == HTTP_DATA_MORE) {
-		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
-	} else if (final_data == HTTP_DATA_FINAL) {
-		LOG_INF("All the data received (%zd bytes)", rsp->data_len);
-
-		// Decode the protobuf response.
-		decode_ota_update_response(rsp->body_frag_start, rsp->body_frag_len);
-	}
-
-	LOG_INF("Response to %s", (const char *)user_data);
-	LOG_INF("Response status %s", rsp->http_status);
-}
 
 /* 
  * IOTEMBSYS9: Implement the server OTA request functionality. This should
@@ -604,53 +517,7 @@ static void http_ota_proto_response_cb(struct http_response *rsp,
  * Look at `backend_http_request` if you need a reminder of how to do this.
  */
 static void backend_ota_http_request(void) {
-	int sock;
-	const int32_t timeout = 5 * MSEC_PER_SEC;
 
-	// Get the IP address of the domain
-	if (get_addr_if_needed(&backend_addr_, EC2_HOST, xstr(BACKEND_PORT)) != 0) {
-		LOG_ERR("DNS lookup failed");
-		return;
-	}
-
-	// Create a socket using parameters that the modem allows.
-	sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (sock < 0) {
-		LOG_ERR("Creating socket failed");
-		return;
-	}
-	if (connect(sock, backend_addr_->ai_addr, backend_addr_->ai_addrlen) < 0) {
-		LOG_ERR("Connecting to socket failed");
-		return;
-	}
-
-	struct http_request req;
-
-	memset(&req, 0, sizeof(req));
-	memset(recv_buf_, 0, sizeof(recv_buf_));
-
-	req.host = BACKEND_HOST;
-	req.protocol = "HTTP/1.1";
-	req.method = HTTP_POST;
-	req.url = "/ota";
-	req.payload = recv_buf_;
-	req.payload_len = http_ota_proto_payload_get(recv_buf_, sizeof(recv_buf_));
-	req.payload = req.payload_len ? recv_buf_ : NULL;
-	req.response = http_ota_proto_response_cb;
-	req.recv_buf = recv_buf_;
-	req.recv_buf_len = sizeof(recv_buf_);
-
-	// This request is synchronous and blocks the thread.
-	LOG_INF("Sending OTA HTTP request");
-	int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
-	if (ret > 0) {
-		LOG_INF("HTTP request sent %d bytes", ret);
-	} else {
-		LOG_ERR("HTTP request failed: %d", ret);
-	}
-
-	LOG_INF("Closing the socket");
-	close(sock);
 }
 
 //
@@ -735,89 +602,22 @@ void http_ota_response_cb(struct http_response *rsp,
 
 /* IOTEMBSYS9: Implement the HTTP OTA request. This is where the actual download happens! */
 static void http_ota_request() {
-	int sock;
-	const int32_t timeout = 120 * MSEC_PER_SEC;
-
 	LOG_INF("Starting OTA...");
 
 	total_read_size = 0;
 	total_write_size = 0;
 
 	/* IOTEMBSYS9: Open the slot1 flash area as `image_area` (declared for you) */
-	// Erase a flash area if previously written to.
-	int err = flash_area_open(SLOT1_PARTITION_ID, (const struct flash_area **)&image_area);
-	if (err != 0) {
-		LOG_ERR("Flash area open failed");
-		return;
-	}
+
 	/* IOTEMBSYS9: Erase the slot1 flash area */
-	err = flash_area_erase(image_area, 0, image_area->fa_size);
-	if (err != 0) {
-		LOG_ERR("Flash area erase failed");
-		return;
-	}
 
 	/* IOTEMBSYS9: Get the IP address for the host, if using DNS, and open the socket. */
-
-	// Get the IP address of the domain
-	if (get_addr_if_needed(&ota_addr_, OTA_HOST, xstr(OTA_HTTP_PORT)) != 0) {
-		LOG_ERR("DNS lookup failed");
-		return;
-	}
-
-	// Create a socket using parameters that the modem allows.
-	sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (sock < 0) {
-		LOG_ERR("Creating socket failed");
-		return;
-	}
-	if (connect(sock, ota_addr_->ai_addr, ota_addr_->ai_addrlen) < 0) {
-		LOG_ERR("Connecting to socket failed");
-		return;
-	}
 
 	/* 
 	 * IOTEMBSYS9: Create and run the HTTP request; ensure that response is set to `http_ota_response_cb`
 	 */
-	struct http_request req;
-
-	memset(&req, 0, sizeof(req));
-	memset(recv_buf_, 0, sizeof(recv_buf_));
-
-	req.method = HTTP_GET;
-	req.url = ota_path_;
-	req.host = OTA_HOST;
-	req.protocol = "HTTP/1.1";
-	req.payload_len = 0;
-	req.payload_cb = NULL;
-	req.response = http_ota_response_cb;
-	req.recv_buf = recv_buf_;
-	req.recv_buf_len = sizeof(recv_buf_);
-
-	/* 
-	 * IOTEMBSYS9: Send the HTTP request and ensure that the image is downloaded.
-	 * If successful, confirm that content_length_ == total_read_size and 
-	 * total_write_size == total_read_size
-	 */
-	// This request is synchronous and blocks the thread.
-	int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
-	if (ret > 0) {
-		LOG_INF("HTTP request sent %d bytes", ret);
-		LOG_INF("Received: %d", total_read_size);
-		if (content_length_ != total_read_size || total_write_size != total_read_size) {
-			LOG_ERR("Content length mismatch. Read: %d\tWrote: %d\tExpected: %d", total_read_size, total_write_size, content_length_);
-		}
-		k_msleep(1000);
-	} else {
-		LOG_ERR("HTTP request failed: %d", ret);
-		k_msleep(1000);
-	}
 
 	/* IOTEMBSYS9: Close the socket and close the image area. */
-	LOG_INF("Closing the socket");
-	close(sock);
-	LOG_INF("Close image area");
-	flash_area_close(image_area);
 }
 
 // This thread is responsible for making all HTTP requests in the app.
