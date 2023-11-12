@@ -20,8 +20,6 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 #include <pb_decode.h>
 #include "api/api.pb.h"
 
-/* IOTEMBSYS11: Add include for stats, if using */
-
 #include <stdlib.h>
 #include <stdio.h>
 #include "app_version.h"
@@ -29,8 +27,6 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 // Helper for converting macros into strings
 #define str(s) #s
 #define xstr(s) str(s)
-
-/* IOTEMBSYS11: Stats sections and entries declarations. */
 
 /* 1000 msec = 1 sec */
 #define DEFAULT_SLEEP_TIME_MS   1000
@@ -382,8 +378,6 @@ static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, si
 
 	/* Fill in the reboot count */
 	message.boot_count = boot_count;
-
-	/* IOTEMBSYS11: Fill out app stats. */
 
 	/* Now we are ready to encode the message! */
 	status = pb_encode(&stream, StatusUpdateRequest_fields, &message);
@@ -865,8 +859,6 @@ void main(void)
 	settings_subsys_init();
     settings_register(&my_conf);
     settings_load();
-
-	/* IOTEMBSYS11: Initialize stats subsystem, if using. */
 
 	/* IOTEMBSYS: Increment boot count. */
 	boot_count++;
