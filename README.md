@@ -37,6 +37,12 @@ west init -m https://github.com/kail/embsys-firmware --mr main embsys-workspace
 # update Zephyr modules
 cd embsys-workspace
 west update
+
+# Export the zephyr cmake package and requirements
+west zephyr-export
+
+# Install the requirements for building
+pip3 install -r zephyr/scripts/requirements.txt
 ```
 
 ### Initialization for each new assignment
