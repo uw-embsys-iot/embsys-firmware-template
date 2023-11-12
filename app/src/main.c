@@ -89,10 +89,6 @@ struct k_fifo socket_queue_;
 #define MAX_RECV_BUF_LEN 1024
 static uint8_t recv_buf_[MAX_RECV_BUF_LEN];
 
-/* IOTEMBSYS: Create a buffer for receiving the OTA path */
-// TODO(mskobov): this should not be static!
-static char ota_path_[128] = "/does_not_exist/zephyr.signed.bin";
-
 /* IOTEMBSYS: Consider provisioning a device ID. */
 static const char kDeviceId[] = "12345";
 
@@ -500,126 +496,6 @@ static void backend_http_request(void) {
 	close(sock);
 }
 
-/* IOTEMBSYS9: Create a HTTP request and response with protobuf. */
-
-/* IOTEMBSYS9: Implement decoding of the server OTA response */
-
-/* IOTEMBSYS9: Implement encoding of the server OTA request */
-
-/* IOTEMBSYS9: Implement the server OTA response callback. */
-
-/* 
- * IOTEMBSYS9: Implement the server OTA request functionality. This should
- * open a socket, encode the OTA request, send that request to the EC2 instance
- * and get back a response. The response should contain the image path, or some
- * indication (like a bool) that the OTA is not needed. When an OTA is needed,
- * the URL or path should be used for making the request in `http_ota_request`.
- * Look at `backend_http_request` if you need a reminder of how to do this.
- */
-static void backend_ota_http_request(void) {
-
-}
-
-//
-// OTA Download Section
-//
-/* IOTEMBSYS9: Implement the OTA HTTP download. */
-#define OTA_HTTP_PORT 80
-/* IOTEMBSYS9: Your host is probably different. */
-#define OTA_HOST "iotemb-firmware-releases.s3.amazonaws.com"
-static int total_read_size;
-static int total_write_size;
-static int content_length_;
-static struct flash_area *image_area;
-static struct addrinfo* ota_addr_;
-
-/* 
- * IOTEMBSYS9: This function is given to you and should be used as the payload callback.
- * There are a few cases it doesn't handle correctly, but you are unlikely to run into them.
- */
-void http_ota_response_cb(struct http_response *rsp,
-			enum http_final_call final_data,
-			void *user_data)
-{
-	static uint8_t overflow_[8];
-	static uint8_t overflow_count_;
-	uint8_t overflow_inverse = 0;
-	size_t bytes_to_write = rsp->body_frag_len;
-
-	if (total_read_size == 0) {
-		overflow_count_ = 0;
-	}
-
-	if (overflow_count_ != 0) {
-		overflow_inverse = sizeof(overflow_) - overflow_count_;
-		
-		if (overflow_inverse > rsp->body_frag_len) {
-			LOG_INF("Not enough data; copy all to overflow");
-			memcpy(overflow_ + overflow_count_, rsp->body_frag_start, rsp->body_frag_len);
-			overflow_count_ += rsp->body_frag_len;
-			bytes_to_write -= rsp->body_frag_len;
-		} else {
-			memcpy(overflow_ + overflow_count_, rsp->body_frag_start, overflow_inverse);
-			bytes_to_write -= overflow_inverse;
-			int err = flash_area_write(image_area, total_read_size - overflow_count_, overflow_, sizeof(overflow_));
-			if (err != 0) {
-				LOG_ERR("Flash area write failed");
-			} else {
-				total_write_size += sizeof(overflow_);
-			}
-		}
-	}
-
-	if (bytes_to_write != 0) {
-		// This is specific to STM32 flash
-		// TODO(mskobov): don't write if < 8 bytes to write
-		overflow_count_ = bytes_to_write % 8;
-		int err = flash_area_write(image_area, total_read_size + overflow_inverse, rsp->body_frag_start + overflow_inverse, bytes_to_write - overflow_count_);
-		if (err != 0) {
-			LOG_ERR("Flash area write failed");
-		} else {
-			total_write_size += bytes_to_write - overflow_count_;
-		}
-		if (overflow_count_ != 0) {
-			memset(overflow_, 0, sizeof(overflow_));
-			memcpy(overflow_, rsp->body_frag_start + overflow_inverse + bytes_to_write - overflow_count_, overflow_count_);
-			if (final_data == HTTP_DATA_FINAL) {
-				err = flash_area_write(image_area, total_read_size + overflow_inverse + bytes_to_write - overflow_count_, overflow_, sizeof(overflow_));
-				if (err != 0) {
-					LOG_ERR("Flash area write failed");
-				} else {
-					// Technically, we could have written more, but we don't care about the alignment bytes.
-					total_write_size += overflow_count_;
-				}
-			}
-		}
-	}
-
-	// Count the read size to make sure it matches the content length header at the end.
-	total_read_size += rsp->body_frag_len;
-	content_length_ = rsp->content_length;
-}
-
-/* IOTEMBSYS9: Implement the HTTP OTA request. This is where the actual download happens! */
-static void http_ota_request() {
-	LOG_INF("Starting OTA...");
-
-	total_read_size = 0;
-	total_write_size = 0;
-
-	/* IOTEMBSYS9: Open the slot1 flash area as `image_area` (declared for you) */
-
-	/* IOTEMBSYS9: Erase the slot1 flash area */
-
-	/* IOTEMBSYS9: Get the IP address for the host, if using DNS, and open the socket. */
-
-	/* 
-	 * IOTEMBSYS9: Create and run the HTTP request; ensure that response is set to `http_ota_response_cb`
-	 */
-
-	/* IOTEMBSYS9: Close the socket and close the image area. */
-}
-
 // This thread is responsible for making all HTTP requests in the app.
 // This enforces simplicity, and prevents requests from stepping on one another.
 void http_client_thread(void* p1, void* p2, void* p3) {
@@ -640,13 +516,13 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 			generic_http_request();
 		}
 		if (events & (1 << BUTTON_ACTION_OTA_DOWNLOAD)) {
-			http_ota_request();
+			LOG_INF("OTA not implemented");
 		}
 		if (events & (1 << BUTTON_ACTION_PROTO_REQ)) {
 			backend_http_request();
 		}
 		if (events & (1 << BUTTON_ACTION_GET_OTA_PATH)) {
-			backend_ota_http_request();
+			LOG_INF("OTA not implemented");
 		}
 	}
 }
