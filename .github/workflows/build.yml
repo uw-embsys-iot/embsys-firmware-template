@@ -9,22 +9,26 @@ jobs:
     env:
       CMAKE_PREFIX_PATH: /opt/toolchains
     steps:
+      # IOTEMBSYS10: Add a step to checkout the repo
       - name: Checkout
         uses: actions/checkout@v2
         with:
           path: embsys-firmware
 
+      # IOTEMBSYS10: Add a step to initialize the west workspace
       - name: Initialize
         working-directory: embsys-firmware
         run: |
           west init -l .
           west update
 
+      # IOTEMBSYS10: Add a step to build the application
       - name: Build firmware
         working-directory: embsys-firmware
         run: |
           west build -b stm32l496_cell app
 
+      # IOTEMBSYS10: Add a step to run the unit tests with twister
       # Add tests here
       # - name: Twister Tests
       #   working-directory: embsys-firmware
