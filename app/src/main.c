@@ -93,7 +93,7 @@ static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
 
-/* IOTEMBSYS8: Define a default settings val and configuration access */
+/* IOTEMBSYS7: Define a default settings val and configuration access */
 #define DEFAULT_BOOT_COUNT_VALUE 0
 static uint8_t boot_count = DEFAULT_BOOT_COUNT_VALUE;
 
