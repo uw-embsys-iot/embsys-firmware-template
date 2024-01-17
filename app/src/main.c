@@ -352,7 +352,7 @@ static void generic_http_request(void) {
 #define BACKEND_HOST EC2_HOST ":8080"
 static struct addrinfo* backend_addr_;
 
-/* IOTEMBSYS: Add protobuf encoding and decoding. */
+/* IOTEMBSYS7: Add protobuf encoding and decoding. */
 static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, size_t *message_length)
 {
 	bool status;
