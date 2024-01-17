@@ -29,7 +29,6 @@
 		};
 	};
 
-	/* IOTEMBSYS: Add joystick GPIO keys */
 	gpio_keys {
 		compatible = "gpio-keys";
 		joy_sel: joystick_select {
@@ -66,6 +65,7 @@
 };
 
 &flash0 {
+	/* IOTEMBSYS7: Create a storage partition */
 	partitions {
 		compatible = "fixed-partitions";
 		#address-cells = <1>;
@@ -73,7 +73,7 @@
 
 		storage_partition: partition@90000 {
 			label = "storage";
-			reg = <0x000F0000 0x1000>;
+			reg = <0x000FF000 0x1000>;
 		};
 	};
 };

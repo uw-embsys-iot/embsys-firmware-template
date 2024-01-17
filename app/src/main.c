@@ -11,11 +11,11 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 /* IOTEMBSYS: Add required iheadersmport shell and/or others */
 //#include <zephyr/shell/shell.h>
 
-/* IOTEMBSYS: Add required headers for settings */
+/* IOTEMBSYS7: Add required headers for settings */
 #include <zephyr/settings/settings.h>
 #include <zephyr/storage/flash_map.h>
 
-/* IOTEMBSYS: Add required headers for protobufs */
+/* IOTEMBSYS7: Add required headers for protobufs */
 #include <pb_encode.h>
 #include <pb_decode.h>
 #include "api/api.pb.h"
@@ -56,10 +56,7 @@ static struct gpio_callback button_cb_data_2;
 static struct gpio_callback button_cb_data_3;
 static struct gpio_callback button_cb_data_4;
 
-/* IOTEMBSYS: Define/declare partitions here */
-#define SLOT1_PARTITION slot1_partition
-#define SLOT1_PARTITION_ID FIXED_PARTITION_ID(SLOT1_PARTITION)
-
+/* IOTEMBSYS7: Define/declare partitions here if needed for erasing flash */
 #define STORAGE_PARTITION storage_partition
 #define STORAGE_PARTITION_ID FIXED_PARTITION_ID(STORAGE_PARTITION)
 
@@ -96,11 +93,11 @@ static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
 
-/* IOTEMBSYS: Define a default settings val and configuration access */
+/* IOTEMBSYS8: Define a default settings val and configuration access */
 #define DEFAULT_BOOT_COUNT_VALUE 0
 static uint8_t boot_count = DEFAULT_BOOT_COUNT_VALUE;
 
-static int foo_settings_set(const char *name, size_t len,
+static int provisioning_settings_set(const char *name, size_t len,
                             settings_read_cb read_cb, void *cb_arg)
 {
     const char *next;
@@ -125,7 +122,7 @@ static int foo_settings_set(const char *name, size_t len,
     return -ENOENT;
 }
 
-static int foo_settings_export(int (*storage_func)(const char *name,
+static int provisioning_settings_export(int (*storage_func)(const char *name,
                                                    const void *value,
                                                    size_t val_len))
 {
@@ -134,8 +131,8 @@ static int foo_settings_export(int (*storage_func)(const char *name,
 
 struct settings_handler my_conf = {
     .name = "provisioning",
-    .h_set = foo_settings_set,
-    .h_export = foo_settings_export
+    .h_set = provisioning_settings_set,
+    .h_export = provisioning_settings_export,
 };
 
 /* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
@@ -559,16 +556,16 @@ void main(void)
 	// 	err = flash_area_erase(my_area, 0, FLASH_AREA_SIZE(storage));
 	// }
 
-	/* IOTEMBSYS: Initialize settings subsystem. */
+	/* IOTEMBSYS7: Initialize settings subsystem. */
 	settings_subsys_init();
     settings_register(&my_conf);
     settings_load();
 
-	/* IOTEMBSYS: Increment boot count. */
+	/* IOTEMBSYS7: Increment, save, and log the boot count. */
 	boot_count++;
-    settings_save_one("provisioning/boot_count", &boot_count, sizeof(boot_count));
+	settings_save_one("provisioning/boot_count", &boot_count, sizeof(boot_count));
 
-    LOG_INF("boot_count: %d\n", boot_count);
+	LOG_INF("boot_count: %d\n", boot_count);
 
 	/* IOTEMBSYS: Configure joystick GPIOs. */
 	init_joystick_gpio(&sw0, &button_cb_data_0);
