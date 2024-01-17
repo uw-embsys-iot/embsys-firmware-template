@@ -4,8 +4,6 @@
 #include <zephyr/net/net_ip.h>
 #include <zephyr/net/socket.h>
 
-/* IOTEMBSYS5: Add the HTTP client include(s). */
-
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
@@ -57,16 +55,8 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 /* The amount of time between GPIO blinking. */
 static uint32_t blink_interval_ = DEFAULT_SLEEP_TIME_MS;
 
-/* IOTEMBSYS5: This has been implemented for you. Some of the actions will be unused until future assignments. */
-// Synchronization to unblock the sender task
+/* IOTEMBSYS: Add synchronization to unblock the sender task */
 static struct k_event unblock_sender_;
-typedef enum {
-	BUTTON_ACTION_NONE = 0,
-	BUTTON_ACTION_GENERIC_HTTP,
-	BUTTON_ACTION_OTA_DOWNLOAD,
-	BUTTON_ACTION_PROTO_REQ,
-	BUTTON_ACTION_GET_OTA_PATH,
-} button_action_e;
 
 /* IOTEMBSYS: Add synchronization to pass the socket to the receiver task */
 struct k_fifo socket_queue_;
@@ -76,11 +66,19 @@ static void change_blink_interval(uint32_t new_interval_ms) {
 }
 
 /* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
+static bool req_in_progress_ = false;
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 		    uint32_t pins) {
+	if (req_in_progress_) {
+		return;
+	}
+	req_in_progress_ = true;
+
 	// Sophomoric "debouncing" implementation
-	printk("Button %d pressed at %" PRIu32 "\n", pins, sys_clock_tick_get_32);
+	printk("Button %d pressed at %" PRIu32 "\n", pins, k_cycle_get_32());
 	k_msleep(100);
+
+	k_event_set(&unblock_sender_, 0x001);
 
 	uint32_t interval_ms = 0;
 	if (pins == BIT(sw0.pin)) {
@@ -88,18 +86,14 @@ static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 	} else if (pins == BIT(sw1.pin)) {
 		// Down
 		interval_ms = 200;
-		k_event_set(&unblock_sender_, (1 << BUTTON_ACTION_OTA_DOWNLOAD));
 	} else if (pins == BIT(sw2.pin)) {
 		// Right
 		interval_ms = 500;
-		k_event_set(&unblock_sender_, (1 << BUTTON_ACTION_GENERIC_HTTP));
 	} else if (pins == BIT(sw3.pin)) {
 		// Up
 		interval_ms = 1000;
-		k_event_set(&unblock_sender_, (1 << BUTTON_ACTION_PROTO_REQ));
 	} else if (pins == BIT(sw4.pin)) {
 		// Left
-		k_event_set(&unblock_sender_, (1 << BUTTON_ACTION_GET_OTA_PATH));
 		interval_ms = 2000;
 	} else {
 		printk("Unrecognized pin");
@@ -140,107 +134,141 @@ static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_cal
 	return ret;
 }
 
-//
-// Networking/sockets helpers
-//
-
-/* IOTEMBSYS5: This helper function has been added for you. */
-static void dump_addrinfo(const struct addrinfo *ai) {
-	printf("addrinfo @%p: ai_family=%d, ai_socktype=%d, ai_protocol=%d, "
-	       "sa_family=%d, sin_port=%x\n",
-	       ai, ai->ai_family, ai->ai_socktype, ai->ai_protocol,
-	       ai->ai_addr->sa_family,
-	       ((struct sockaddr_in *)ai->ai_addr)->sin_port);
-}
-
-/* IOTEMBSYS5: This helper function has been added for you. */
-static int get_addr_if_needed(struct addrinfo **ai, const char* host, const char* port) {
-	if (*ai != NULL) {
-		// We already have the address.
-		return 0;
-	}
-	struct addrinfo hints;
-	int st;
-
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	st = getaddrinfo(host, port, &hints, ai);
-	LOG_INF("getaddrinfo status: %d\n", st);
-	if (st == 0) {
-		dump_addrinfo(*ai);
-	}
-	return st;
-}
-
-//
-// Generic HTTP Request Section
-//
-
-// WARNING: These IPs are not static! Use a DNS lookup tool
+/* IOTEMBSYS: Configure the appropriate IP address and port */
+// WARNING: This IP might not be static! Use a DNS lookup tool
 // to get the latest IP.
 #define TCPBIN_IP "45.79.112.203"
-#define TCP_PORT 4242
-#define IS_POST_REQ 1
-#define USE_PROTO 1
+#define TCPBIN_PORT 4242
 
-/* IOTEMBSYS5: The host and port for httpbin requests */
-#define HTTPBIN_PORT 80
-#define HTTPBIN_HOST "httpbin.org"
-static struct addrinfo* httpbin_addr_;
+static int setup_socket(sa_family_t family, const char *server, int port,
+			int *sock, struct sockaddr *addr, socklen_t addr_len)
+{
+	const char *family_str = family == AF_INET ? "IPv4" : "IPv6";
+	int ret = 0;
 
-/* IOTEMBSYS5: Create a HTTP response handler/callback for GET requests. */
+	memset(addr, 0, addr_len);
 
-/* IOTEMBSYS5: Create a HTTP response handler/callback for POST requests. */
+	net_sin(addr)->sin_family = AF_INET;
+	net_sin(addr)->sin_port = htons(port);
+	inet_pton(family, server, &net_sin(addr)->sin_addr);
 
-/* IOTEMBSYS5: Implement the HTTP client functionality */
-static void generic_http_request(void) {
-	/* IOTEMBSYS5: Get the IP address using our get_addr_if_needed helper, or getaddrinfo directly. */
+	*sock = socket(family, SOCK_STREAM, IPPROTO_TCP);
 
-	/* IOTEMBSYS5: Create a socket and connect to it */
+	if (*sock < 0) {
+		LOG_ERR("Failed to create %s HTTP socket (%d)", family_str,
+			-errno);
+	}
 
-	/* IOTEMBSYS5: Declare and fill out a request struct */
-
-	/* IOTEMBSYS5: Send the request */
-
-	/* IOTEMBSYS5: Close the socket */
+	return ret;
 }
 
-/* IOTEMBSYS5: This thread has been added for you. */
-// This thread is responsible for making all HTTP requests in the app.
-// This enforces simplicity, and prevents requests from stepping on one another.
-void http_client_thread(void* p1, void* p2, void* p3) {
+static int connect_socket(sa_family_t family, const char *server, int port,
+			  int *sock, struct sockaddr *addr, socklen_t addr_len)
+{
+	int ret;
+
+	ret = setup_socket(family, server, port, sock, addr, addr_len);
+	if (ret < 0 || *sock < 0) {
+		return -1;
+	}
+
+	ret = connect(*sock, addr, addr_len);
+	if (ret < 0) {
+		LOG_ERR("Cannot connect to %s remote (%d)",
+			family == AF_INET ? "IPv4" : "IPv6",
+			-errno);
+		ret = -errno;
+	}
+
+	return ret;
+}
+
+struct socket_queue_item {
+	void* fifo_reserved;
+	int sock;
+};
+
+#define USE_EC2_ECHO_SERVER 0
+
+/* IOTEMBSYS: Create the TCP sender thread */
+void tcp_sender_thread(void* p1, void* p2, void* p3) {
+	int sock;
+	struct sockaddr_in addr4;
+#if !USE_EC2_ECHO_SERVER
+	static const char kEchoServerIP[] = TCPBIN_IP;
+	static const int kEchoServerPort = TCPBIN_PORT;
+#else
+	// The IP of your EC2 instance
+	static const char kEchoServerIP[] = "44.203.155.243";
+	static const int kEchoServerPort = 4242;
+#endif
+	static const char kData[] = "hello!\r\n";
+	struct socket_queue_item socket_item;
+
 	k_event_init(&unblock_sender_);
 
 	while (true) {
 		uint32_t  events;
 
-		LOG_INF("Waiting for button");
-		events = k_event_wait(&unblock_sender_, 0xFFF, true, K_FOREVER);
+		printk("Sender waiting for button press\n");
+		events = k_event_wait(&unblock_sender_, 0xFFF, false, K_FOREVER);
 		if (events == 0) {
 			printk("This should not be happening!");
 			continue;
 		}
+		printk("Sending data\n");
 
-		// Multiple button events are possible, so handle all without exclusion.
-		if (events & (1 << BUTTON_ACTION_GENERIC_HTTP)) {
-			/* IOTEMBSYS5: The HTTP request functionality should go into this function, triggered by the right button. */
-			generic_http_request();
+		if (connect_socket(AF_INET, kEchoServerIP, kEchoServerPort,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
+			LOG_ERR("Connect failed");
+			continue;
 		}
-		if (events & (1 << BUTTON_ACTION_OTA_DOWNLOAD)) {
-			LOG_INF("OTA not implemented");
+		printk("Connected\n");
+
+		(void)send(sock, kData, sizeof(kData), 0);
+		printk("Data sent\n");
+		
+		// TODO: shouldn't need a delay here
+		k_msleep(1000);
+
+		// Relinquish ownership of this socket by passing it to the receiver task
+		socket_item.sock = sock;
+		k_fifo_put(&socket_queue_, &socket_item);
+		printk("Socket passed to receiver\n");
+	}
+}
+K_THREAD_DEFINE(tcp_sender_tid, 1000 /*stack size*/,
+                tcp_sender_thread, NULL, NULL, NULL,
+                5 /*priority*/, 0, 0);
+
+/* IOTEMBSYS: Create the TCP receiver thread */
+void tcp_receiver_thread(void* p1, void* p2, void* p3) {
+	struct socket_queue_item* socket_item;
+	static char recv_buf_[100];
+
+	k_fifo_init(&socket_queue_);
+
+	while (true) {
+		printk("Receiver waiting for socket\n");
+		socket_item = k_fifo_get(&socket_queue_, K_FOREVER);
+		if (socket_item == 0) {
+			printk("This should not be happening!");
+			continue;
 		}
-		if (events & (1 << BUTTON_ACTION_PROTO_REQ)) {
-			LOG_INF("Server requests not implemented");
+		printk("Receiving data...");
+		while (recv(socket_item->sock, recv_buf_, sizeof(recv_buf_) - 1, 0) == 0) {
+			printk("No data was received");
 		}
-		if (events & (1 << BUTTON_ACTION_GET_OTA_PATH)) {
-			LOG_INF("OTA not implemented");
-		}
+		printk("Received: %s\n", recv_buf_);
+		printk("Closing socket\n");
+		close(socket_item->sock);
+		printk("Socket closed\n");
+		k_event_clear(&unblock_sender_, 0xFFF);
+		req_in_progress_ = false;
 	}
 }
 
-K_THREAD_DEFINE(http_client_tid, 4000 /*stack size*/,
-                http_client_thread, NULL, NULL, NULL,
+K_THREAD_DEFINE(tcp_receiver_tid, 1000 /*stack size*/,
+                tcp_receiver_thread, NULL, NULL, NULL,
                 5 /*priority*/, 0, 0);
 
 void main(void)
