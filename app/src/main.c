@@ -286,18 +286,6 @@ static void generic_http_request(void) {
 	close(sock);
 }
 
-//
-// Backend Request Section
-//
-
-// You will need to change this to match your host
-// WARNING: This will change with each new EC2 instance!
-#define EC2_HOST "ec2-54-167-81-5.compute-1.amazonaws.com"
-#define BACKEND_PORT 8080
-#define BACKEND_HOST EC2_HOST ":8080"
-static struct addrinfo* backend_addr_;
-
-
 // This thread is responsible for making all HTTP requests in the app.
 // This enforces simplicity, and prevents requests from stepping on one another.
 void http_client_thread(void* p1, void* p2, void* p3) {
@@ -319,6 +307,9 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 		}
 		if (events & (1 << BUTTON_ACTION_OTA_DOWNLOAD)) {
 			LOG_INF("OTA not implemented");
+		}
+		if (events & (1 << BUTTON_ACTION_PROTO_REQ)) {
+			LOG_INF("Server requests not implemented");
 		}
 		if (events & (1 << BUTTON_ACTION_GET_OTA_PATH)) {
 			LOG_INF("OTA not implemented");
