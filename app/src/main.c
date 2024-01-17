@@ -3,7 +3,8 @@
 
 #include <zephyr/net/net_ip.h>
 #include <zephyr/net/socket.h>
-#include <zephyr/net/http/client.h>
+
+/* IOTEMBSYS5: Add the HTTP client include(s). */
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
@@ -70,13 +71,6 @@ typedef enum {
 /* IOTEMBSYS: Add synchronization to pass the socket to the receiver task */
 struct k_fifo socket_queue_;
 
-/* IOTEMBSYS: Create a buffer for receiving HTTP responses */
-#define MAX_RECV_BUF_LEN 1024
-static uint8_t recv_buf_[MAX_RECV_BUF_LEN];
-
-/* IOTEMBSYS: Consider provisioning a device ID. */
-static const char kDeviceId[] = "12345";
-
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
@@ -84,7 +78,9 @@ static void change_blink_interval(uint32_t new_interval_ms) {
 /* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 		    uint32_t pins) {
-	printk("Button %d pressed at %" PRIu32 "\n", pins, k_cycle_get_32());
+	// Sophomoric "debouncing" implementation
+	printk("Button %d pressed at %" PRIu32 "\n", pins, sys_clock_tick_get_32);
+	k_msleep(100);
 
 	uint32_t interval_ms = 0;
 	if (pins == BIT(sw0.pin)) {
@@ -193,105 +189,21 @@ static int get_addr_if_needed(struct addrinfo **ai, const char* host, const char
 #define HTTPBIN_HOST "httpbin.org"
 static struct addrinfo* httpbin_addr_;
 
-/* IOTEMBSYS5: Create a HTTP response handler/callback. */
-void http_response_cb(struct http_response *rsp,
-			enum http_final_call final_data,
-			void *user_data)
-{
-	if (final_data == HTTP_DATA_MORE) {
-		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
-	} else if (final_data == HTTP_DATA_FINAL) {
-		LOG_INF("All the data received (%zd bytes)", rsp->data_len);
-		
-		// This assumes the response fits in a single buffer.
-		recv_buf_[rsp->data_len] = '\0';
-	}
+/* IOTEMBSYS5: Create a HTTP response handler/callback for GET requests. */
 
-	LOG_INF("Response to %s", (const char *)user_data);
-	LOG_INF("Response status %s", rsp->http_status);
-}
-
-/* IOTEMBSYS5: Create a HTTP response handler/callback. */
-int http_payload_cb(int sock, struct http_request *req, void *user_data) {
-	const char *content[] = {
-		"foobar",
-		"chunked",
-		"last"
-	};
-	char tmp[64];
-	int i, pos = 0;
-
-	for (i = 0; i < ARRAY_SIZE(content); i++) {
-		pos += snprintk(tmp + pos, sizeof(tmp) - pos,
-				"%x\r\n%s\r\n",
-				(unsigned int)strlen(content[i]),
-				content[i]);
-	}
-
-	pos += snprintk(tmp + pos, sizeof(tmp) - pos, "0\r\n\r\n");
-
-	(void)send(sock, tmp, pos, 0);
-
-	return pos;
-}
+/* IOTEMBSYS5: Create a HTTP response handler/callback for POST requests. */
 
 /* IOTEMBSYS5: Implement the HTTP client functionality */
 static void generic_http_request(void) {
-	int sock;
-	const int32_t timeout = 5 * MSEC_PER_SEC;
-
 	/* IOTEMBSYS5: Get the IP address using our get_addr_if_needed helper, or getaddrinfo directly. */
-	if (get_addr_if_needed(&httpbin_addr_, HTTPBIN_HOST, xstr(HTTPBIN_PORT)) != 0) {
-		LOG_ERR("DNS lookup failed");
-		return;
-	}
 
 	/* IOTEMBSYS5: Create a socket and connect to it */
-	sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (sock < 0) {
-		LOG_ERR("Creating socket failed");
-		return;
-	}
-	if (connect(sock, httpbin_addr_->ai_addr, httpbin_addr_->ai_addrlen) < 0) {
-		LOG_ERR("Connecting to socket failed");
-		return;
-	}
 
 	/* IOTEMBSYS5: Declare and fill out a request struct */
-	struct http_request req;
-
-	memset(&req, 0, sizeof(req));
-	memset(recv_buf_, 0, sizeof(recv_buf_));
-
-#if !IS_POST_REQ
-	req.method = HTTP_GET;
-	req.url = "/get";
-#else
-	req.method = HTTP_POST;
-	req.url = "/post";
-	req.payload_cb = http_payload_cb;
-	// This must match the payload-generating function!
-	req.payload_len = 37;
-#endif // IS_POST_REQ
-	req.host = HTTPBIN_HOST;
-	req.protocol = "HTTP/1.1";
-	req.response = http_response_cb;
-	req.recv_buf = recv_buf_;
-	req.recv_buf_len = sizeof(recv_buf_);
 
 	/* IOTEMBSYS5: Send the request */
-	// This request is synchronous and blocks the thread.
-	LOG_INF("Sending HTTP request");
-	int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
-	if (ret > 0) {
-		LOG_INF("HTTP request sent %d bytes", ret);
-	} else {
-		LOG_ERR("HTTP request failed: %d", ret);
-	}
 
 	/* IOTEMBSYS5: Close the socket */
-	LOG_INF("Closing the socket");
-	close(sock);
 }
 
 /* IOTEMBSYS5: This thread has been added for you. */
