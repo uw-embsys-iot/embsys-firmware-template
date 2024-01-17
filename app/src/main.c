@@ -12,13 +12,13 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 //#include <zephyr/shell/shell.h>
 
 /* IOTEMBSYS7: Add required headers for settings */
-#include <zephyr/settings/settings.h>
-#include <zephyr/storage/flash_map.h>
+// #include <zephyr/settings/settings.h>
+// #include <zephyr/storage/flash_map.h>
 
 /* IOTEMBSYS7: Add required headers for protobufs */
-#include <pb_encode.h>
-#include <pb_decode.h>
-#include "api/api.pb.h"
+// #include <pb_encode.h>
+// #include <pb_decode.h>
+// #include "api/api.pb.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -94,46 +94,25 @@ static void change_blink_interval(uint32_t new_interval_ms) {
 }
 
 /* IOTEMBSYS7: Define a default settings val and configuration access */
-#define DEFAULT_BOOT_COUNT_VALUE 0
-static uint8_t boot_count = DEFAULT_BOOT_COUNT_VALUE;
 
+/*
 static int provisioning_settings_set(const char *name, size_t len,
                             settings_read_cb read_cb, void *cb_arg)
 {
-    const char *next;
-    int rc;
-
-    if (settings_name_steq(name, "boot_count", &next) && !next) {
-        if (len != sizeof(boot_count)) {
-            return -EINVAL;
-        }
-
-        rc = read_cb(cb_arg, &boot_count, sizeof(boot_count));
-        if (rc >= 0) {
-            /* key-value pair was properly read.
-             * rc contains value length.
-             */
-            return 0;
-        }
-        /* read-out error */
-        return rc;
-    }
-
-    return -ENOENT;
+    // Your code goes here
 }
+
 
 static int provisioning_settings_export(int (*storage_func)(const char *name,
                                                    const void *value,
                                                    size_t val_len))
 {
-    return storage_func("provisioning/boot_count", &boot_count, sizeof(boot_count));
+    // Your code goes here
 }
 
-struct settings_handler my_conf = {
-    .name = "provisioning",
-    .h_set = provisioning_settings_set,
-    .h_export = provisioning_settings_export,
-};
+// You can give this whatever name you like
+struct settings_handler settings_conf = { }
+*/
 
 /* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
@@ -352,33 +331,12 @@ static void generic_http_request(void) {
 #define BACKEND_HOST EC2_HOST ":8080"
 static struct addrinfo* backend_addr_;
 
-/* IOTEMBSYS: Add protobuf encoding and decoding. */
+/* IOTEMBSYS7: Add protobuf encoding and decoding. */
 static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, size_t *message_length)
 {
-	bool status;
+	bool status = false;
 
-	/* Allocate space on the stack to store the message data.
-	 *
-	 * Nanopb generates simple struct definitions for all the messages.
-	 * - check out the contents of api.pb.h!
-	 * It is a good idea to always initialize your structures
-	 * so that you do not have garbage data from RAM in there.
-	 */
-	StatusUpdateRequest message = StatusUpdateRequest_init_zero;
-
-	/* Create a stream that will write to our buffer. */
-	pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
-
-	/* Fill in the reboot count */
-	message.boot_count = boot_count;
-
-	/* Now we are ready to encode the message! */
-	status = pb_encode(&stream, StatusUpdateRequest_fields, &message);
-	*message_length = stream.bytes_written;
-
-	if (!status) {
-		printk("Encoding failed: %s\n", PB_GET_ERROR(&stream));
-	}
+	// Your implementation goes here.
 
 	return status;
 }
@@ -386,27 +344,8 @@ static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, si
 static bool decode_status_update_response(uint8_t *buffer, size_t message_length)
 {
 	bool status = false;
-	if (message_length == 0) {
-		LOG_WRN("Message length is 0");
-		return status;
-	}
-
-	/* Allocate space for the decoded message. */
-	StatusUpdateResponse message = StatusUpdateResponse_init_zero;
-
-	/* Create a stream that reads from the buffer. */
-	pb_istream_t stream = pb_istream_from_buffer(buffer, message_length);
-
-	/* Now we are ready to decode the message. */
-	status = pb_decode(&stream, StatusUpdateResponse_fields, &message);
-
-	/* Check for errors... */
-	if (status) {
-		/* Print the data contained in the message. */
-		printk("Response message: %s\n", message.message);
-	} else {
-		printk("Decoding failed: %s\n", PB_GET_ERROR(&stream));
-	}
+	
+	// Your implementation goes here.
 
 	return status;
 }
@@ -557,15 +496,8 @@ void main(void)
 	// }
 
 	/* IOTEMBSYS7: Initialize settings subsystem. */
-	settings_subsys_init();
-    settings_register(&my_conf);
-    settings_load();
 
 	/* IOTEMBSYS7: Increment, save, and log the boot count. */
-	boot_count++;
-	settings_save_one("provisioning/boot_count", &boot_count, sizeof(boot_count));
-
-	LOG_INF("boot_count: %d\n", boot_count);
 
 	/* IOTEMBSYS: Configure joystick GPIOs. */
 	init_joystick_gpio(&sw0, &button_cb_data_0);

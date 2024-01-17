@@ -1,3 +1,1 @@
 // IOTEMBSYS7: Define the IDL here
-StatusUpdateRequest.device_id max_size:64 fixed_length:true
-StatusUpdateResponse.message max_size:32 fixed_length:true

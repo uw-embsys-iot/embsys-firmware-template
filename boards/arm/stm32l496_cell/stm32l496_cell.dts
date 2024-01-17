@@ -64,19 +64,10 @@
 
 };
 
-&flash0 {
-	/* IOTEMBSYS7: Create a storage partition */
-	partitions {
-		compatible = "fixed-partitions";
-		#address-cells = <1>;
-		#size-cells = <1>;
-
-		storage_partition: partition@90000 {
-			label = "storage";
-			reg = <0x000FF000 0x1000>;
-		};
-	};
-};
+/* IOTEMBSYS7: Create a storage partition */
+/*
+&flash0 {};
+*/
 
 &clk_lsi {
 	status = "okay";
