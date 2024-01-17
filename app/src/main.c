@@ -319,6 +319,7 @@ static void generic_http_request(void) {
 // Backend Request Section
 //
 
+/* IOTEMBSYS7: Change the host and/or port to match your instance. */
 // You will need to change this to match your host
 // WARNING: This will change with each new EC2 instance!
 #define EC2_HOST "ec2-54-167-81-5.compute-1.amazonaws.com"
