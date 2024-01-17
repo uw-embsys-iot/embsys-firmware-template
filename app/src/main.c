@@ -56,7 +56,8 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 /* The amount of time between GPIO blinking. */
 static uint32_t blink_interval_ = DEFAULT_SLEEP_TIME_MS;
 
-/* IOTEMBSYS: Add synchronization to unblock the sender task */
+/* IOTEMBSYS5: This has been implemented for you. Some of the actions will be unused until future assignments. */
+// Synchronization to unblock the sender task
 static struct k_event unblock_sender_;
 typedef enum {
 	BUTTON_ACTION_NONE = 0,
@@ -146,6 +147,8 @@ static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_cal
 //
 // Networking/sockets helpers
 //
+
+/* IOTEMBSYS5: This helper function has been added for you. */
 static void dump_addrinfo(const struct addrinfo *ai) {
 	printf("addrinfo @%p: ai_family=%d, ai_socktype=%d, ai_protocol=%d, "
 	       "sa_family=%d, sin_port=%x\n",
@@ -154,6 +157,7 @@ static void dump_addrinfo(const struct addrinfo *ai) {
 	       ((struct sockaddr_in *)ai->ai_addr)->sin_port);
 }
 
+/* IOTEMBSYS5: This helper function has been added for you. */
 static int get_addr_if_needed(struct addrinfo **ai, const char* host, const char* port) {
 	if (*ai != NULL) {
 		// We already have the address.
@@ -180,16 +184,16 @@ static int get_addr_if_needed(struct addrinfo **ai, const char* host, const char
 // WARNING: These IPs are not static! Use a DNS lookup tool
 // to get the latest IP.
 #define TCPBIN_IP "45.79.112.203"
-#define HTTPBIN_IP "54.204.94.184"
 #define TCP_PORT 4242
 #define IS_POST_REQ 1
 #define USE_PROTO 1
 
+/* IOTEMBSYS5: The host and port for httpbin requests */
 #define HTTPBIN_PORT 80
 #define HTTPBIN_HOST "httpbin.org"
 static struct addrinfo* httpbin_addr_;
 
-/* IOTEMBSYS: Create a HTTP response handler/callback. */
+/* IOTEMBSYS5: Create a HTTP response handler/callback. */
 void http_response_cb(struct http_response *rsp,
 			enum http_final_call final_data,
 			void *user_data)
@@ -207,6 +211,7 @@ void http_response_cb(struct http_response *rsp,
 	LOG_INF("Response status %s", rsp->http_status);
 }
 
+/* IOTEMBSYS5: Create a HTTP response handler/callback. */
 int http_payload_cb(int sock, struct http_request *req, void *user_data) {
 	const char *content[] = {
 		"foobar",
@@ -230,18 +235,18 @@ int http_payload_cb(int sock, struct http_request *req, void *user_data) {
 	return pos;
 }
 
-/* IOTEMBSYS: Implement the HTTP client functionality */
+/* IOTEMBSYS5: Implement the HTTP client functionality */
 static void generic_http_request(void) {
 	int sock;
 	const int32_t timeout = 5 * MSEC_PER_SEC;
 
-	// Get the IP address of the domain
+	/* IOTEMBSYS5: Get the IP address using our get_addr_if_needed helper, or getaddrinfo directly. */
 	if (get_addr_if_needed(&httpbin_addr_, HTTPBIN_HOST, xstr(HTTPBIN_PORT)) != 0) {
 		LOG_ERR("DNS lookup failed");
 		return;
 	}
 
-	// Create a socket using parameters that the modem allows.
+	/* IOTEMBSYS5: Create a socket and connect to it */
 	sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (sock < 0) {
 		LOG_ERR("Creating socket failed");
@@ -252,6 +257,7 @@ static void generic_http_request(void) {
 		return;
 	}
 
+	/* IOTEMBSYS5: Declare and fill out a request struct */
 	struct http_request req;
 
 	memset(&req, 0, sizeof(req));
@@ -273,6 +279,7 @@ static void generic_http_request(void) {
 	req.recv_buf = recv_buf_;
 	req.recv_buf_len = sizeof(recv_buf_);
 
+	/* IOTEMBSYS5: Send the request */
 	// This request is synchronous and blocks the thread.
 	LOG_INF("Sending HTTP request");
 	int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
@@ -282,10 +289,12 @@ static void generic_http_request(void) {
 		LOG_ERR("HTTP request failed: %d", ret);
 	}
 
+	/* IOTEMBSYS5: Close the socket */
 	LOG_INF("Closing the socket");
 	close(sock);
 }
 
+/* IOTEMBSYS5: This thread has been added for you. */
 // This thread is responsible for making all HTTP requests in the app.
 // This enforces simplicity, and prevents requests from stepping on one another.
 void http_client_thread(void* p1, void* p2, void* p3) {
@@ -303,6 +312,7 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 
 		// Multiple button events are possible, so handle all without exclusion.
 		if (events & (1 << BUTTON_ACTION_GENERIC_HTTP)) {
+			/* IOTEMBSYS5: The HTTP request functionality should go into this function, triggered by the right button. */
 			generic_http_request();
 		}
 		if (events & (1 << BUTTON_ACTION_OTA_DOWNLOAD)) {
