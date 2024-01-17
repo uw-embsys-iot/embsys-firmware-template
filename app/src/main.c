@@ -12,13 +12,8 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 //#include <zephyr/shell/shell.h>
 
 /* IOTEMBSYS7: Add required headers for settings */
-// #include <zephyr/settings/settings.h>
-// #include <zephyr/storage/flash_map.h>
 
 /* IOTEMBSYS7: Add required headers for protobufs */
-// #include <pb_encode.h>
-// #include <pb_decode.h>
-// #include "api/api.pb.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -57,8 +52,8 @@ static struct gpio_callback button_cb_data_3;
 static struct gpio_callback button_cb_data_4;
 
 /* IOTEMBSYS7: Define/declare partitions here if needed for erasing flash */
-#define STORAGE_PARTITION storage_partition
-#define STORAGE_PARTITION_ID FIXED_PARTITION_ID(STORAGE_PARTITION)
+// #define STORAGE_PARTITION storage_partition
+// #define STORAGE_PARTITION_ID FIXED_PARTITION_ID(STORAGE_PARTITION)
 
 /*
  * A build error on this line means your board is unsupported.
