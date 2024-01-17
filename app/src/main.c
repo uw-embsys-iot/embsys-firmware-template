@@ -79,7 +79,7 @@ static void change_blink_interval(uint32_t new_interval_ms) {
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 		    uint32_t pins) {
 	// Sophomoric "debouncing" implementation
-	printk("Button %d pressed at %" PRIu32 "\n", pins, sys_clock_tick_get_32);
+	printk("Button %d pressed at %" PRIu32 "\n", pins, k_cycle_get_32());
 	k_msleep(100);
 
 	uint32_t interval_ms = 0;
