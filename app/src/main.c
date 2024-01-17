@@ -377,7 +377,7 @@ void http_proto_response_cb(struct http_response *rsp,
 }
 
 
-/* IOTEMBSYS: Implement the HTTP client functionality */
+/* IOTEMBSYS7: The backend request functionality has been implemented for you. Feel free to modify as needed. */
 static void backend_http_request(void) {
 	int sock;
 	const int32_t timeout = 5 * MSEC_PER_SEC;
