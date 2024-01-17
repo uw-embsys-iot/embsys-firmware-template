@@ -11,10 +11,6 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 /* IOTEMBSYS: Add required iheadersmport shell and/or others */
 //#include <zephyr/shell/shell.h>
 
-/* IOTEMBSYS7: Add required headers for settings */
-
-/* IOTEMBSYS7: Add required headers for protobufs */
-
 #include <stdlib.h>
 #include <stdio.h>
 #include "app_version.h"
@@ -51,10 +47,6 @@ static struct gpio_callback button_cb_data_2;
 static struct gpio_callback button_cb_data_3;
 static struct gpio_callback button_cb_data_4;
 
-/* IOTEMBSYS7: Define/declare partitions here if needed for erasing flash */
-// #define STORAGE_PARTITION storage_partition
-// #define STORAGE_PARTITION_ID FIXED_PARTITION_ID(STORAGE_PARTITION)
-
 /*
  * A build error on this line means your board is unsupported.
  * See the blinky sample documentation for information on how to fix this.
@@ -87,27 +79,6 @@ static const char kDeviceId[] = "12345";
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
-
-/* IOTEMBSYS7: Define a default settings val and configuration access */
-
-/*
-static int provisioning_settings_set(const char *name, size_t len,
-                            settings_read_cb read_cb, void *cb_arg)
-{
-    // Your code goes here
-}
-
-
-static int provisioning_settings_export(int (*storage_func)(const char *name,
-                                                   const void *value,
-                                                   size_t val_len))
-{
-    // Your code goes here
-}
-
-// You can give this whatever name you like
-struct settings_handler settings_conf = { }
-*/
 
 /* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
@@ -326,106 +297,6 @@ static void generic_http_request(void) {
 #define BACKEND_HOST EC2_HOST ":8080"
 static struct addrinfo* backend_addr_;
 
-/* IOTEMBSYS7: Add protobuf encoding and decoding. */
-static bool encode_status_update_request(uint8_t *buffer, size_t buffer_size, size_t *message_length)
-{
-	bool status = false;
-
-	// Your implementation goes here.
-
-	return status;
-}
-
-static bool decode_status_update_response(uint8_t *buffer, size_t message_length)
-{
-	bool status = false;
-	
-	// Your implementation goes here.
-
-	return status;
-}
-
-int http_proto_payload_gen(uint8_t* buffer, size_t buf_size) {
-	size_t message_length;
-
-	/* Encode our message */
-	if (!encode_status_update_request(buffer, buf_size, &message_length)) {
-		LOG_ERR("Encoding request failed");
-		return 0;
-	} else {
-		LOG_INF("Sending proto to server. Length: %d", (int)message_length);
-	}
-
-	return (int)message_length;
-}
-
-void http_proto_response_cb(struct http_response *rsp,
-			enum http_final_call final_data,
-			void *user_data)
-{
-	if (final_data == HTTP_DATA_MORE) {
-		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
-	} else if (final_data == HTTP_DATA_FINAL) {
-		LOG_INF("All the data received (%zd bytes)", rsp->data_len);
-
-		// Decode the protobuf response.
-		decode_status_update_response(rsp->body_frag_start, rsp->body_frag_len);
-	}
-
-	LOG_INF("Response to %s", (const char *)user_data);
-	LOG_INF("Response status %s", rsp->http_status);
-}
-
-
-/* IOTEMBSYS: Implement the HTTP client functionality */
-static void backend_http_request(void) {
-	int sock;
-	const int32_t timeout = 5 * MSEC_PER_SEC;
-
-	// Get the IP address of the domain
-	if (get_addr_if_needed(&backend_addr_, EC2_HOST, xstr(BACKEND_PORT)) != 0) {
-		LOG_ERR("DNS lookup failed");
-		return;
-	}
-
-	// Create a socket using parameters that the modem allows.
-	sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (sock < 0) {
-		LOG_ERR("Creating socket failed");
-		return;
-	}
-	if (connect(sock, backend_addr_->ai_addr, backend_addr_->ai_addrlen) < 0) {
-		LOG_ERR("Connecting to socket failed");
-		return;
-	}
-
-	struct http_request req;
-
-	memset(&req, 0, sizeof(req));
-	memset(recv_buf_, 0, sizeof(recv_buf_));
-
-	req.method = HTTP_POST;
-	req.url = "/status_update";
-	req.host = BACKEND_HOST;
-	req.protocol = "HTTP/1.1";
-	req.payload_len = http_proto_payload_gen(recv_buf_, sizeof(recv_buf_));
-	req.payload = req.payload_len ? recv_buf_ : NULL;
-	req.response = http_proto_response_cb;
-	req.recv_buf = recv_buf_;
-	req.recv_buf_len = sizeof(recv_buf_);
-
-	// This request is synchronous and blocks the thread.
-	LOG_INF("Sending HTTP request");
-	int ret = http_client_req(sock, &req, timeout, "IPv4 GET");
-	if (ret > 0) {
-		LOG_INF("HTTP request sent %d bytes", ret);
-	} else {
-		LOG_ERR("HTTP request failed: %d", ret);
-	}
-
-	LOG_INF("Closing the socket");
-	close(sock);
-}
 
 // This thread is responsible for making all HTTP requests in the app.
 // This enforces simplicity, and prevents requests from stepping on one another.
@@ -448,9 +319,6 @@ void http_client_thread(void* p1, void* p2, void* p3) {
 		}
 		if (events & (1 << BUTTON_ACTION_OTA_DOWNLOAD)) {
 			LOG_INF("OTA not implemented");
-		}
-		if (events & (1 << BUTTON_ACTION_PROTO_REQ)) {
-			backend_http_request();
 		}
 		if (events & (1 << BUTTON_ACTION_GET_OTA_PATH)) {
 			LOG_INF("OTA not implemented");
@@ -475,24 +343,6 @@ void main(void)
 	if (ret < 0) {
 		return;
 	}
-
-	// This code is commented out to aid you in development
-	// if you ever need to erase a flash area. If you find yourself
-	// in a situation where the previously saved settings aren't loading
-	// then it's likely that the partition is corrupted and needs to be erased.
-
-	// Erase a flash area if previously written to.
-	// const struct flash_area *my_area;
-	// int err = flash_area_open(STORAGE_PARTITION_ID, &my_area);
-	// if (err != 0) {
-	// 	printk("Flash area open failed");
-	// } else {
-	// 	err = flash_area_erase(my_area, 0, FLASH_AREA_SIZE(storage));
-	// }
-
-	/* IOTEMBSYS7: Initialize settings subsystem. */
-
-	/* IOTEMBSYS7: Increment, save, and log the boot count. */
 
 	/* IOTEMBSYS: Configure joystick GPIOs. */
 	init_joystick_gpio(&sw0, &button_cb_data_0);

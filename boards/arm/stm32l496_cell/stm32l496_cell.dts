@@ -64,11 +64,6 @@
 
 };
 
-/* IOTEMBSYS7: Create a storage partition */
-/*
-&flash0 {};
-*/
-
 &clk_lsi {
 	status = "okay";
 };
