@@ -100,16 +100,7 @@
 	current-speed = <115200>;
 	status = "okay";
 
-	/* QUECTEL BG96 */
-	/* IOTEMBSYS3: Add BG96 device node */
-	quectel_bg96: quectel_bg96 {
-		compatible = "quectel,bg96";
-		mdm-power-gpios = <&gpiod 3 GPIO_ACTIVE_LOW>;
-		mdm-reset-gpios = <&gpiob 2 GPIO_ACTIVE_LOW>;
-		mdm-dtr-gpios = <&gpioa 0 GPIO_ACTIVE_LOW>;
-		mdm-sim-select-gpios = <&gpioc 2 GPIO_ACTIVE_LOW>, <&gpioi 3 GPIO_ACTIVE_LOW>;
-		status = "okay";
-	};
+	/* IOTEMBSYS3: Add BG96 device node. Ensure that you are using bg96 and NOT bg9x from Zephyr. */
 };
 
 /* IOTEMBSYS: Add UART node */

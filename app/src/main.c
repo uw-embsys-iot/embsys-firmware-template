@@ -122,7 +122,6 @@ static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_cal
 void main(void)
 {
 	int ret;
-	const struct device *modem;
 
 	if (!gpio_is_ready_dt(&led)) {
 		return;
@@ -140,11 +139,10 @@ void main(void)
 	init_joystick_gpio(&sw3, &button_cb_data_3);
 	init_joystick_gpio(&sw4, &button_cb_data_4);
 
-	modem = DEVICE_DT_GET(DT_NODELABEL(quectel_bg96));
-	if (!device_is_ready(modem)) {
-		LOG_ERR("Modem is not ready");
-		return;
-	}
+	/* 
+	 * IOTEMBSYS3: Get the handle to the modem from the devicetree and check if it's ready.
+	 * Hint: try DT_NODELABEL and DEVICE_DT_GET
+	 */
 
 	LOG_INF("Running blinky");
 	while (1) {

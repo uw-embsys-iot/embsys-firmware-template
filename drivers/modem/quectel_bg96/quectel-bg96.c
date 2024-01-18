@@ -282,10 +282,6 @@ MODEM_CMD_DEFINE(on_cmd_exterror)
 /* Handler: +CSQ: <signal_power>[0], <qual>[1] */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_rssi_csq)
 {
-	// IOTEMBSYS3: the modem will become connected and allow the app to boot
-	// when it has sufficient signal strength (RSSI). Find the definition of
-	// the MODEM_CMD_DEFINE or try debugging to figure out which variable
-	// needs to become the RSSI
 	int rssi = ATOI(argv[0], 0, "signal_power");
 
 	/* Check the RSSI value. */
@@ -328,13 +324,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_manufacturer)
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 {
 	// IOTEMBSYS3: Implement this handler.
-	size_t out_len = net_buf_linearize(mdata.mdm_model,
-					   sizeof(mdata.mdm_model) - 1,
-					   data->rx_buf, 0, len);
-	mdata.mdm_model[out_len] = '\0';
 
-	/* Log the received information. */
-	LOG_INF("Model: %s", mdata.mdm_model);
 	return 0;
 }
 
@@ -342,13 +332,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 {
 	// IOTEMBSYS3: Implement this handler.
-	size_t out_len = net_buf_linearize(mdata.mdm_revision,
-					   sizeof(mdata.mdm_revision) - 1,
-					   data->rx_buf, 0, len);
-	mdata.mdm_revision[out_len] = '\0';
 
-	/* Log the received information. */
-	LOG_INF("Revision: %s", mdata.mdm_revision);
 	return 0;
 }
 
@@ -356,13 +340,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imei)
 {
 	// IOTEMBSYS3: Implement this handler.
-	size_t out_len = net_buf_linearize(mdata.mdm_imei,
-					   sizeof(mdata.mdm_imei) - 1,
-					   data->rx_buf, 0, len);
-	mdata.mdm_imei[out_len] = '\0';
 
-	/* Log the received information. */
-	LOG_INF("IMEI: %s", mdata.mdm_imei);
 	return 0;
 }
 
@@ -384,23 +362,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imsi)
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_iccid)
 {
 	// IOTEMBSYS3: Implement this handler.
-	size_t out_len;
-	char   *p;
-
-	out_len = net_buf_linearize(mdata.mdm_iccid, sizeof(mdata.mdm_iccid) - 1,
-				    data->rx_buf, 0, len);
-	mdata.mdm_iccid[out_len] = '\0';
-
-	/* Skip over the +CCID bit, which modems omit. */
-	if (mdata.mdm_iccid[0] == '+') {
-		p = strchr(mdata.mdm_iccid, ' ');
-		if (p) {
-			out_len = strlen(p + 1);
-			memmove(mdata.mdm_iccid, p + 1, len + 1);
-		}
-	}
-
-	LOG_INF("ICCID: %s", mdata.mdm_iccid);
+	
 	return 0;
 }
 #endif /* #if defined(CONFIG_MODEM_SIM_NUMBERS) */
@@ -1197,22 +1159,21 @@ static const struct setup_cmd setup_cmds[] = {
 	 */
 
 	// IOTEMBSYS3: Turn off flow control
-  SETUP_CMD_NOHANDLE("AT+IFC=0,0"),
+
   // IOTEMBSYS3: Disconnect existing connections
-	SETUP_CMD_NOHANDLE("ATH"),
+
   // IOTEMBSYS3: Set default error message format (numeric values)
-	SETUP_CMD_NOHANDLE("AT+CMEE=1"),
+
   // IOTEMBSYS3: Disable power save mode
-  SETUP_CMD_NOHANDLE("AT+CPSMS=0"),
+
 
 	/* Commands to read info from the modem (things like IMEI, Model etc). */
 	SETUP_CMD("AT+CGMI", "", on_cmd_atcmdinfo_manufacturer, 0U, ""),
 	// IOTEMBSYS3: Get the model info
-	SETUP_CMD("AT+CGMM", "", on_cmd_atcmdinfo_model, 0U, ""),
+
 	// IOTEMBSYS3: Get the modem firmware revision
-	SETUP_CMD("AT+CGMR", "", on_cmd_atcmdinfo_revision, 0U, ""),
+
 	// IOTEMBSYS3: Get the modem IMEI
-	SETUP_CMD("AT+CGSN", "", on_cmd_atcmdinfo_imei, 0U, ""),
 
 	// Go into minimum functionality mode
 	SETUP_CMD_NOHANDLE("AT+CFUN=0,0"),
@@ -1230,7 +1191,6 @@ static const struct setup_cmd setup_cmds[] = {
 	//SETUP_CMD_NOHANDLE("AT+QCFG=\"band\",0xf,0x400a0e189f,0xa0e189f,1"),
 
 	// IOTEMBSYS3: Go into full functionality mode
-	SETUP_CMD_NOHANDLE("AT+CFUN=1,0"),
 };
 
 // These are commands that can sometimes fail, so they are declared separately.
