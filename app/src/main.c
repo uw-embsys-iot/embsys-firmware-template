@@ -1,8 +1,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 
-#include <zephyr/net/net_ip.h>
-#include <zephyr/net/socket.h>
+/* IOTEMBSYS4: Add required includes for TCP/sockets */
+//#include <zephyr/net/net_ip.h>
+//#include <zephyr/net/socket.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
@@ -13,10 +14,6 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 #include <stdlib.h>
 #include <stdio.h>
 #include "app_version.h"
-
-// Helper for converting macros into strings
-#define str(s) #s
-#define xstr(s) str(s)
 
 /* 1000 msec = 1 sec */
 #define DEFAULT_SLEEP_TIME_MS   1000
@@ -55,11 +52,7 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 /* The amount of time between GPIO blinking. */
 static uint32_t blink_interval_ = DEFAULT_SLEEP_TIME_MS;
 
-/* IOTEMBSYS4: Add synchronization to unblock the sender task */
-static struct k_event unblock_sender_;
-
-/* IOTEMBSYS4: Add synchronization to pass the socket to the receiver task */
-struct k_fifo socket_queue_;
+/* IOTEMBSYS4: Add message passing/synchronization to pass the socket from the sender to the receiver task */
 
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
@@ -79,7 +72,6 @@ static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 	k_msleep(100);
 
 	/* IOTEMBSYS4: Send data over TCP every time a joystick button is pressed. */
-	k_event_set(&unblock_sender_, 0x001);
 
 	uint32_t interval_ms = 0;
 	if (pins == BIT(sw0.pin)) {
@@ -101,7 +93,7 @@ static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 	}
 
 	if (interval_ms != 0) {
-		printk("Setting interval to %d", interval_ms);
+		printk("Setting interval to %d\n", interval_ms);
 		change_blink_interval(interval_ms);
 	}
 }
@@ -141,125 +133,10 @@ static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_cal
 #define TCPBIN_IP "45.79.112.203"
 #define TCPBIN_PORT 4242
 
-static int setup_socket(sa_family_t family, const char *server, int port,
-			int *sock, struct sockaddr *addr, socklen_t addr_len)
-{
-	const char *family_str = family == AF_INET ? "IPv4" : "IPv6";
-	int ret = 0;
-
-	memset(addr, 0, addr_len);
-
-	net_sin(addr)->sin_family = AF_INET;
-	net_sin(addr)->sin_port = htons(port);
-	inet_pton(family, server, &net_sin(addr)->sin_addr);
-
-	*sock = socket(family, SOCK_STREAM, IPPROTO_TCP);
-
-	if (*sock < 0) {
-		LOG_ERR("Failed to create %s HTTP socket (%d)", family_str,
-			-errno);
-	}
-
-	return ret;
-}
-
-static int connect_socket(sa_family_t family, const char *server, int port,
-			  int *sock, struct sockaddr *addr, socklen_t addr_len)
-{
-	int ret;
-
-	ret = setup_socket(family, server, port, sock, addr, addr_len);
-	if (ret < 0 || *sock < 0) {
-		return -1;
-	}
-
-	ret = connect(*sock, addr, addr_len);
-	if (ret < 0) {
-		LOG_ERR("Cannot connect to %s remote (%d)",
-			family == AF_INET ? "IPv4" : "IPv6",
-			-errno);
-		ret = -errno;
-	}
-
-	return ret;
-}
-
-static bool await_data(int sock, int32_t timeout) {
-	int ret;
-	struct zsock_pollfd fds[1];
-	int nfds = 1;
-
-	fds[0].fd = sock;
-	fds[0].events = ZSOCK_POLLIN;
-
-	ret = zsock_poll(fds, nfds, timeout);
-	if (ret == 0) {
-		LOG_DBG("Timeout");
-		return false;
-	} else if (ret < 0) {
-		return false;
-	}
-	if (fds[0].revents & (ZSOCK_POLLERR | ZSOCK_POLLNVAL)) {
-		return false;
-	} else if (fds[0].revents & ZSOCK_POLLHUP) {
-		/* Connection closed */
-		LOG_DBG("Connection closed");
-		return false;
-	} else if (fds[0].revents & ZSOCK_POLLIN) {
-		return true;
-	}
-
-	return false;
-}
-
-struct socket_queue_item {
-	void* fifo_reserved;
-	int sock;
-};
-
-#define USE_EC2_ECHO_SERVER 0
-
 /* IOTEMBSYS4: Create the TCP sender thread */
 void tcp_sender_thread(void* p1, void* p2, void* p3) {
-	int sock;
-	struct sockaddr_in addr4;
-#if !USE_EC2_ECHO_SERVER
-	static const char kEchoServerIP[] = TCPBIN_IP;
-	static const int kEchoServerPort = TCPBIN_PORT;
-#else
-	// The IP of your EC2 instance
-	static const char kEchoServerIP[] = "44.203.155.243";
-	static const int kEchoServerPort = 4242;
-#endif
-	static const char kData[] = "hello!\r\n";
-	struct socket_queue_item socket_item;
-
-	k_event_init(&unblock_sender_);
-
 	while (true) {
-		uint32_t  events;
-
-		printk("Sender waiting for button press\n");
-		events = k_event_wait(&unblock_sender_, 0xFFF, true, K_FOREVER);
-		if (events == 0) {
-			printk("This should not be happening!");
-			continue;
-		}
-		printk("Connecting\n");
-
-		if (connect_socket(AF_INET, kEchoServerIP, kEchoServerPort,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
-			LOG_ERR("Connect failed");
-			continue;
-		}
-		printk("Connected\n");
-
-		(void)send(sock, kData, sizeof(kData), 0);
-		printk("Data sent\n");
-
-		// Relinquish ownership of this socket by passing it to the receiver task
-		socket_item.sock = sock;
-		k_fifo_put(&socket_queue_, &socket_item);
-		printk("Socket passed to receiver\n");
+		k_msleep(1000);
 	}
 }
 K_THREAD_DEFINE(tcp_sender_tid, 1000 /*stack size*/,
@@ -268,36 +145,10 @@ K_THREAD_DEFINE(tcp_sender_tid, 1000 /*stack size*/,
 
 /* IOTEMBSYS4: Create the TCP receiver thread */
 void tcp_receiver_thread(void* p1, void* p2, void* p3) {
-	struct socket_queue_item* socket_item;
-	static char recv_buf_[100];
-
-	k_fifo_init(&socket_queue_);
-
 	while (true) {
-		printk("Receiver waiting for socket\n");
-		socket_item = k_fifo_get(&socket_queue_, K_FOREVER);
-		if (socket_item == 0) {
-			printk("This should not be happening!");
-			continue;
-		}
-		printk("Receiving data...");
-		bool data_exists = await_data(socket_item->sock, 5000);
-		if (!data_exists) {
-			goto close;
-		}
-		if (recv(socket_item->sock, recv_buf_, sizeof(recv_buf_) - 1, 0) == 0) {
-			printk("No data was received");
-		} else {
-			printk("Received: %s\n", recv_buf_);
-		}
-close:
-		printk("Closing socket\n");
-		close(socket_item->sock);
-		printk("Socket closed\n");
-		req_in_progress_ = false;
+		k_msleep(1000);
 	}
 }
-
 K_THREAD_DEFINE(tcp_receiver_tid, 1000 /*stack size*/,
                 tcp_receiver_thread, NULL, NULL, NULL,
                 5 /*priority*/, 0, 0);
