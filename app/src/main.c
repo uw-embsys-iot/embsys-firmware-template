@@ -55,10 +55,10 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 /* The amount of time between GPIO blinking. */
 static uint32_t blink_interval_ = DEFAULT_SLEEP_TIME_MS;
 
-/* IOTEMBSYS: Add synchronization to unblock the sender task */
+/* IOTEMBSYS4: Add synchronization to unblock the sender task */
 static struct k_event unblock_sender_;
 
-/* IOTEMBSYS: Add synchronization to pass the socket to the receiver task */
+/* IOTEMBSYS4: Add synchronization to pass the socket to the receiver task */
 struct k_fifo socket_queue_;
 
 static void change_blink_interval(uint32_t new_interval_ms) {
@@ -78,6 +78,7 @@ static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 	printk("Button %d pressed at %" PRIu32 "\n", pins, k_cycle_get_32());
 	k_msleep(100);
 
+	/* IOTEMBSYS4: Send data over TCP every time a joystick button is pressed. */
 	k_event_set(&unblock_sender_, 0x001);
 
 	uint32_t interval_ms = 0;
@@ -134,7 +135,7 @@ static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_cal
 	return ret;
 }
 
-/* IOTEMBSYS: Configure the appropriate IP address and port */
+/* IOTEMBSYS4: Configure the appropriate IP address and port */
 // WARNING: This IP might not be static! Use a DNS lookup tool
 // to get the latest IP.
 #define TCPBIN_IP "45.79.112.203"
@@ -183,6 +184,34 @@ static int connect_socket(sa_family_t family, const char *server, int port,
 	return ret;
 }
 
+static bool await_data(int sock, int32_t timeout) {
+	int ret;
+	struct zsock_pollfd fds[1];
+	int nfds = 1;
+
+	fds[0].fd = sock;
+	fds[0].events = ZSOCK_POLLIN;
+
+	ret = zsock_poll(fds, nfds, timeout);
+	if (ret == 0) {
+		LOG_DBG("Timeout");
+		return false;
+	} else if (ret < 0) {
+		return false;
+	}
+	if (fds[0].revents & (ZSOCK_POLLERR | ZSOCK_POLLNVAL)) {
+		return false;
+	} else if (fds[0].revents & ZSOCK_POLLHUP) {
+		/* Connection closed */
+		LOG_DBG("Connection closed");
+		return false;
+	} else if (fds[0].revents & ZSOCK_POLLIN) {
+		return true;
+	}
+
+	return false;
+}
+
 struct socket_queue_item {
 	void* fifo_reserved;
 	int sock;
@@ -190,7 +219,7 @@ struct socket_queue_item {
 
 #define USE_EC2_ECHO_SERVER 0
 
-/* IOTEMBSYS: Create the TCP sender thread */
+/* IOTEMBSYS4: Create the TCP sender thread */
 void tcp_sender_thread(void* p1, void* p2, void* p3) {
 	int sock;
 	struct sockaddr_in addr4;
@@ -211,12 +240,12 @@ void tcp_sender_thread(void* p1, void* p2, void* p3) {
 		uint32_t  events;
 
 		printk("Sender waiting for button press\n");
-		events = k_event_wait(&unblock_sender_, 0xFFF, false, K_FOREVER);
+		events = k_event_wait(&unblock_sender_, 0xFFF, true, K_FOREVER);
 		if (events == 0) {
 			printk("This should not be happening!");
 			continue;
 		}
-		printk("Sending data\n");
+		printk("Connecting\n");
 
 		if (connect_socket(AF_INET, kEchoServerIP, kEchoServerPort,  &sock, (struct sockaddr *)&addr4, sizeof(addr4)) < 0) {
 			LOG_ERR("Connect failed");
@@ -226,9 +255,6 @@ void tcp_sender_thread(void* p1, void* p2, void* p3) {
 
 		(void)send(sock, kData, sizeof(kData), 0);
 		printk("Data sent\n");
-		
-		// TODO: shouldn't need a delay here
-		k_msleep(1000);
 
 		// Relinquish ownership of this socket by passing it to the receiver task
 		socket_item.sock = sock;
@@ -240,7 +266,7 @@ K_THREAD_DEFINE(tcp_sender_tid, 1000 /*stack size*/,
                 tcp_sender_thread, NULL, NULL, NULL,
                 5 /*priority*/, 0, 0);
 
-/* IOTEMBSYS: Create the TCP receiver thread */
+/* IOTEMBSYS4: Create the TCP receiver thread */
 void tcp_receiver_thread(void* p1, void* p2, void* p3) {
 	struct socket_queue_item* socket_item;
 	static char recv_buf_[100];
@@ -255,14 +281,19 @@ void tcp_receiver_thread(void* p1, void* p2, void* p3) {
 			continue;
 		}
 		printk("Receiving data...");
-		while (recv(socket_item->sock, recv_buf_, sizeof(recv_buf_) - 1, 0) == 0) {
-			printk("No data was received");
+		bool data_exists = await_data(socket_item->sock, 5000);
+		if (!data_exists) {
+			goto close;
 		}
-		printk("Received: %s\n", recv_buf_);
+		if (recv(socket_item->sock, recv_buf_, sizeof(recv_buf_) - 1, 0) == 0) {
+			printk("No data was received");
+		} else {
+			printk("Received: %s\n", recv_buf_);
+		}
+close:
 		printk("Closing socket\n");
 		close(socket_item->sock);
 		printk("Socket closed\n");
-		k_event_clear(&unblock_sender_, 0xFFF);
 		req_in_progress_ = false;
 	}
 }
