@@ -2,8 +2,6 @@
 #include <zephyr/drivers/gpio.h>
 
 /* IOTEMBSYS4: Add required includes for TCP/sockets */
-//#include <zephyr/net/net_ip.h>
-//#include <zephyr/net/socket.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
@@ -70,8 +68,6 @@ static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 	// Sophomoric "debouncing" implementation
 	printk("Button %d pressed at %" PRIu32 "\n", pins, k_cycle_get_32());
 	k_msleep(100);
-
-	/* IOTEMBSYS4: Send data over TCP every time a joystick button is pressed. */
 
 	uint32_t interval_ms = 0;
 	if (pins == BIT(sw0.pin)) {
