@@ -139,11 +139,6 @@ void main(void)
 	init_joystick_gpio(&sw3, &button_cb_data_3);
 	init_joystick_gpio(&sw4, &button_cb_data_4);
 
-	/* 
-	 * IOTEMBSYS3: Get the handle to the modem from the devicetree and check if it's ready.
-	 * Hint: try DT_NODELABEL and DEVICE_DT_GET
-	 */
-
 	LOG_INF("Running blinky");
 	while (1) {
 		ret = gpio_pin_toggle_dt(&led);

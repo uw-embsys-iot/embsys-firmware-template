@@ -323,24 +323,18 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_manufacturer)
 /* Handler: <model> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 {
-	// IOTEMBSYS3: Implement this handler.
-
 	return 0;
 }
 
 /* Handler: <rev> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 {
-	// IOTEMBSYS3: Implement this handler.
-
 	return 0;
 }
 
 /* Handler: <IMEI> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imei)
 {
-	// IOTEMBSYS3: Implement this handler.
-
 	return 0;
 }
 
@@ -361,8 +355,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imsi)
 /* Handler: <ICCID> */
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_iccid)
 {
-	// IOTEMBSYS3: Implement this handler.
-	
+
 	return 0;
 }
 #endif /* #if defined(CONFIG_MODEM_SIM_NUMBERS) */
@@ -1151,29 +1144,8 @@ static const struct setup_cmd setup_cmds[] = {
 	// TODO(mskobov): Decide on which DTR function mode to use
   SETUP_CMD_NOHANDLE("AT&D0"),
 
-	/*
-	 * IOTEMBSYS3: All of the setup commands in this function are one-liners
-	 * that are called via SETUP_CMD_NOHANDLE or SETUP_CMD. Use the datasheets
-	 * to send the commands as outlined in the comments. Use existing commands
-	 * as examples for implementing what's missing.
-	 */
-
-	// IOTEMBSYS3: Turn off flow control
-
-  // IOTEMBSYS3: Disconnect existing connections
-
-  // IOTEMBSYS3: Set default error message format (numeric values)
-
-  // IOTEMBSYS3: Disable power save mode
-
-
 	/* Commands to read info from the modem (things like IMEI, Model etc). */
 	SETUP_CMD("AT+CGMI", "", on_cmd_atcmdinfo_manufacturer, 0U, ""),
-	// IOTEMBSYS3: Get the model info
-
-	// IOTEMBSYS3: Get the modem firmware revision
-
-	// IOTEMBSYS3: Get the modem IMEI
 
 	// Go into minimum functionality mode
 	SETUP_CMD_NOHANDLE("AT+CFUN=0,0"),
@@ -1189,8 +1161,6 @@ static const struct setup_cmd setup_cmds[] = {
 
 	// Set the band configuration to any
 	//SETUP_CMD_NOHANDLE("AT+QCFG=\"band\",0xf,0x400a0e189f,0xa0e189f,1"),
-
-	// IOTEMBSYS3: Go into full functionality mode
 };
 
 // These are commands that can sometimes fail, so they are declared separately.
