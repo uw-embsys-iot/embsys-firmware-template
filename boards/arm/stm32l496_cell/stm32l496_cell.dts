@@ -101,7 +101,7 @@
 	status = "okay";
 
 	/* QUECTEL BG96 */
-	/* IOTEMBSYS: Add BG96 device node */
+	/* IOTEMBSYS3: Add BG96 device node */
 	quectel_bg96: quectel_bg96 {
 		compatible = "quectel,bg96";
 		mdm-power-gpios = <&gpiod 3 GPIO_ACTIVE_LOW>;

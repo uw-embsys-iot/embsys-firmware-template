@@ -1,8 +1,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 
-/* IOTEMBSYS4: Add required includes for TCP/sockets */
-
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
@@ -49,8 +47,6 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 
 /* The amount of time between GPIO blinking. */
 static uint32_t blink_interval_ = DEFAULT_SLEEP_TIME_MS;
-
-/* IOTEMBSYS4: Add message passing/synchronization to pass the socket from the sender to the receiver task */
 
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
@@ -122,32 +118,6 @@ static int init_joystick_gpio(const struct gpio_dt_spec* button, struct gpio_cal
 	gpio_add_callback(button->port, data);
 	return ret;
 }
-
-/* IOTEMBSYS4: Configure the appropriate IP address and port */
-// WARNING: This IP might not be static! Use a DNS lookup tool
-// to get the latest IP.
-#define TCPBIN_IP "45.79.112.203"
-#define TCPBIN_PORT 4242
-
-/* IOTEMBSYS4: Create the TCP sender thread */
-void tcp_sender_thread(void* p1, void* p2, void* p3) {
-	while (true) {
-		k_msleep(1000);
-	}
-}
-K_THREAD_DEFINE(tcp_sender_tid, 1000 /*stack size*/,
-                tcp_sender_thread, NULL, NULL, NULL,
-                5 /*priority*/, 0, 0);
-
-/* IOTEMBSYS4: Create the TCP receiver thread */
-void tcp_receiver_thread(void* p1, void* p2, void* p3) {
-	while (true) {
-		k_msleep(1000);
-	}
-}
-K_THREAD_DEFINE(tcp_receiver_tid, 1000 /*stack size*/,
-                tcp_receiver_thread, NULL, NULL, NULL,
-                5 /*priority*/, 0, 0);
 
 void main(void)
 {
