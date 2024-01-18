@@ -4,8 +4,8 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
-/* IOTEMBSYS: Add required iheadersmport shell and/or others */
-//#include <zephyr/shell/shell.h>
+/* IOTEMBSYS: Add required headers for shell and/or others */
+#include <zephyr/shell/shell.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -17,7 +17,7 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 /* The devicetree node identifier for the "led0" alias. */
 #define LED0_NODE DT_ALIAS(led0)
 
-/* IOTEMBSYS: Add joystick key declarations. */
+/* IOTEMBSYS2: Add joystick key declarations/references from the device tree. */
 #define SW0_NODE	DT_ALIAS(sw0)
 #define SW1_NODE	DT_ALIAS(sw1)
 #define SW2_NODE	DT_ALIAS(sw2)
@@ -52,15 +52,9 @@ static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
 
-/* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
-static bool req_in_progress_ = false;
+/* IOTEMBSYS2: Add joystick press handler. Metaphorical bonus points for debouncing. */
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 		    uint32_t pins) {
-	if (req_in_progress_) {
-		return;
-	}
-	req_in_progress_ = true;
-
 	// Sophomoric "debouncing" implementation
 	printk("Button %d pressed at %" PRIu32 "\n", pins, k_cycle_get_32());
 	k_msleep(100);
@@ -132,7 +126,7 @@ void main(void)
 		return;
 	}
 
-	/* IOTEMBSYS: Configure joystick GPIOs. */
+	/* IOTEMBSYS2: Configure joystick GPIOs. Each gpio must be configured as GPIO_INPUT and have a callback handler. */
 	init_joystick_gpio(&sw0, &button_cb_data_0);
 	init_joystick_gpio(&sw1, &button_cb_data_1);
 	init_joystick_gpio(&sw2, &button_cb_data_2);
@@ -142,7 +136,8 @@ void main(void)
 	LOG_INF("Running blinky");
 	while (1) {
 		ret = gpio_pin_toggle_dt(&led);
-		/* IOTEMBSYS: Print GPIO state to console. */
+		/* IOTEMBSYS2: Print the LED GPIO state to console. */
+		printk("LED state: %d\n", gpio_pin_get_dt(&led));
 		if (ret < 0) {
 			return;
 		}
@@ -150,3 +145,20 @@ void main(void)
 	}
 }
 
+/* IOTEMBSYS2: Add shell commands and handler. */
+static int cmd_demo_blink(const struct shell *shell, size_t argc, char **argv)
+{
+	uint32_t interval_ms = atoi(argv[1]);
+	if (interval_ms == 0) {
+		printk("Invalid interval\n");
+	}
+	shell_print(shell, "Setting interval to: %d", interval_ms);
+
+	change_blink_interval(interval_ms);
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_app,
+	SHELL_CMD(blink, NULL, "Change blink interval", cmd_demo_blink),
+);
+SHELL_CMD_REGISTER(app, &sub_app, "Application commands", NULL);
