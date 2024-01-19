@@ -23,6 +23,9 @@ the ``embsys-firmware`` (i.e. each assignment and project) and all Zephyr module
 command:
 
 ```shell
+# See the Zephyr "Getting Started Guide" and install all required dependencies (Python3, CMake, Devicetree compiler)
+# https://docs.zephyrproject.org/latest/develop/getting_started/index.html
+
 # install the west tool
 # https://docs.zephyrproject.org/latest/develop/west/install.html
 
@@ -32,8 +35,8 @@ pip3 install --user -U west
 # Windows/macOS
 pip3 install -U west
 
-# initialize firmware_workspace for the embsys-firmware (main branch)
-west init -m https://github.com/uw-embsys-iot/embsys-firmware-template.git --mr main firmware_workspace
+# initialize firmware_workspace for the embsys-firmware repository (main branch)
+west init -m https://github.com/uw-embsys-iot/embsys-firmware-template --mr main firmware_workspace
 
 # update Zephyr modules
 cd firmware_workspace
@@ -44,6 +47,9 @@ west zephyr-export
 
 # Install the requirements for building
 pip3 install -r zephyr/scripts/requirements.txt
+
+# If you choose to use a virtual environment, be sure to use it whenever working on the course.
+# The latest versions of Ubuntu may even force you to use a virtual environment, if you are on that OS.
 ```
 
 ### Initialization for each new assignment
