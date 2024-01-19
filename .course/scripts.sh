@@ -41,7 +41,12 @@ cherry_pick()
     echo "Cherry picking into $i"
     # git pull origin $i
     git checkout $i
-    git cherry-pick $1
+    if git cherry-pick $1 ; then
+      echo "Cherry pick succeeded"
+    else
+      echo "Cherry pick failed"
+      git cherry-pick --abort
+    fi
   done
   git checkout main
 }
