@@ -61,13 +61,26 @@ push_all()
   done
 }
 
-while getopts ":c:p" option; do
+fetch_all()
+{
+  echo "Fetching all branches"
+
+  for i in "${branches[@]}"; do
+    echo "Fetch $i"
+    git fetch origin $i
+  done
+}
+
+while getopts ":c:p:f" option; do
   case $option in
     c) # cherry-pick
       cherry_pick "$OPTARG"
       exit;;
     p) # push all
       push_all
+      exit;;
+    f) # fetch all
+      fetch_all
       exit;;
     \?) # Invalid option
          echo "Error: Invalid option"
