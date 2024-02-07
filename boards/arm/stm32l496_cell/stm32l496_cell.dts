@@ -30,9 +30,7 @@
 	/* IOTEMBSYS2: Add gpio_keys node with all joystick pins */
 
 	/* IOTEMBSYS2: Create aliases for joysticks, if desired. */
-	aliases {
-		led0 = &green_led_2;
-	};
+
 };
 
 &clk_lsi {
