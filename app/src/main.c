@@ -9,9 +9,6 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
-/* IOTEMBSYS: Add required iheadersmport shell and/or others */
-//#include <zephyr/shell/shell.h>
-
 #include <stdlib.h>
 #include <stdio.h>
 #include "app_version.h"
@@ -26,7 +23,6 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 /* The devicetree node identifier for the "led0" alias. */
 #define LED0_NODE DT_ALIAS(led0)
 
-/* IOTEMBSYS: Add joystick key declarations. */
 #define SW0_NODE	DT_ALIAS(sw0)
 #define SW1_NODE	DT_ALIAS(sw1)
 #define SW2_NODE	DT_ALIAS(sw2)
@@ -68,14 +64,12 @@ typedef enum {
 	BUTTON_ACTION_GET_OTA_PATH,
 } button_action_e;
 
-/* IOTEMBSYS: Add synchronization to pass the socket to the receiver task */
 struct k_fifo socket_queue_;
 
 static void change_blink_interval(uint32_t new_interval_ms) {
 	blink_interval_ = new_interval_ms;
 }
 
-/* IOTEMBSYS: Add joystick press handler. Metaphorical bonus points for debouncing. */
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 		    uint32_t pins) {
 	// Sophomoric "debouncing" implementation
@@ -257,7 +251,6 @@ void main(void)
 		return;
 	}
 
-	/* IOTEMBSYS: Configure joystick GPIOs. */
 	init_joystick_gpio(&sw0, &button_cb_data_0);
 	init_joystick_gpio(&sw1, &button_cb_data_1);
 	init_joystick_gpio(&sw2, &button_cb_data_2);
@@ -273,7 +266,7 @@ void main(void)
 	LOG_INF("Running blinky");
 	while (1) {
 		ret = gpio_pin_toggle_dt(&led);
-		/* IOTEMBSYS: Print GPIO state to console. */
+
 		if (ret < 0) {
 			return;
 		}
