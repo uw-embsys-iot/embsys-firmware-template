@@ -30,6 +30,11 @@ jobs:
       #   working-directory: embsys-firmware
       #   run: |
       #     ../zephyr/scripts/twister -G --board-root boards/ --testsuite-root ./tests/
+      - name: Twister Tests
+        working-directory: embsys-firmware
+        shell: bash
+        run: |
+          west twister -T tests -v --inline-logs --integration
 
       - name: Archive firmware
         uses: actions/upload-artifact@v2
