@@ -1,5 +1,6 @@
 name: Build
 
+# IOTEMBSYS10: Change this to only apply to specific branches, if desired
 on: [pull_request]
 
 jobs:
@@ -11,9 +12,7 @@ jobs:
     steps:
       # IOTEMBSYS10: Add a step to checkout the repo
       - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          path: embsys-firmware
+        run: echo "Not a real checkout. This job's status is ${{ job.status }}."
 
       # IOTEMBSYS10: Add a step to initialize the west workspace
 
