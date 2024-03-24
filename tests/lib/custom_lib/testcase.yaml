@@ -1,7 +1,7 @@
 common:
   tags: extensibility
   integration_platforms:
-    - stm32l496_cell
+    - qemu_cortex_m0
 tests:
   lib.custom_lib: {}
   lib.custom_lib.non_default:
