@@ -1,5 +1,6 @@
 # UW IOT Embsys Assignments
 
+
 ## Description
 This is the assignment repository for the UW "Embedded Systems For IoT" course. Throughout the course,
 you will be creating an emdedded system, where each assignment builds upon the previous one. To make
